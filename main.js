@@ -368,12 +368,23 @@ ipcMain.handle('publish:run', async (e, dir, opts) => {
 });
 
 /* ---------- Community Templates & Instant Generator ---------- */
+const { execSync } = require('child_process');
 const ghTokenFile = () => path.join(app.getPath('userData'), 'github-token.bin');
+let cachedGitCredToken = null;
 function loadGhToken() {
   try {
     const raw = fs.readFileSync(ghTokenFile());
     return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-  } catch { return ''; }
+  } catch {}
+  if (cachedGitCredToken !== null) return cachedGitCredToken;
+  try {
+    const credOut = execSync('git credential fill', { input: 'protocol=https\nhost=github.com\n\n', timeout: 2500 }).toString();
+    const m = credOut.match(/password=(.+)/);
+    cachedGitCredToken = m && m[1] ? m[1].trim() : '';
+  } catch {
+    cachedGitCredToken = '';
+  }
+  return cachedGitCredToken;
 }
 
 ipcMain.handle('templates:catalog', () => ({
