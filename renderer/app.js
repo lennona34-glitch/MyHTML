@@ -1,0 +1,2346 @@
+/* MyHTML editor */
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const { BLOCKS, TEMPLATES, page: makePage } = window.MyTpl;
+  const S = {
+    dir: null,
+    base: '',
+    name: '',
+    pages: [],
+    page: null,
+    dirty: false,
+    sel: null,
+    hist: [],
+    hi: -1,
+    live: false,
+    bonesMode: false,
+    fonts: [],
+    assets: { images: [], fonts: [], css: [], other: [] }
+  };
+  const frame = $('#frame');
+  let doc = null;
+
+  /* ---------- helpers ---------- */
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+  const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const rgbToHex = (c) => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(c || '');
+    if (!m || (m[4] !== undefined && +m[4] === 0)) return null;
+    return '#' + [m[1], m[2], m[3]].map((n) => (+n).toString(16).padStart(2, '0')).join('');
+  };
+  const cleanErr = (e) => (e.message || String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const normUrl = (v) => { v = (v || '').trim(); return v && !/^https?:\/\//i.test(v) ? 'https://' + v : v; };
+
+  /* ---------- welcome & recent sites ---------- */
+  async function initWelcome() {
+    $('#tplGrid').innerHTML = Object.entries(TEMPLATES).map(([k, t]) =>
+      `<button class="tpl" data-k="${k}"><div class="e">${t.emoji}</div><b>${t.name}</b><small>${t.desc}</small></button>`
+    ).join('');
+    $$('#tplGrid .tpl').forEach((b) => (b.onclick = async () => enter(await api.createProject({ template: b.dataset.k }))));
+    $('#wOpen').onclick = $('#bOpen').onclick = async () => { await autosave(); enter(await api.openProject()); };
+    $('#wGoClone').onclick = () => {
+      const url = $('#wUrl').value.trim();
+      if (!url) { toast('Please enter a website address to copy'); $('#wUrl').focus(); return; }
+      openClone(url);
+    };
+    $('#wUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#wGoClone').click(); });
+    $('#bClone').onclick = () => openClone();
+    $('#bHome').onclick = async () => { await autosave(); $('#welcome').hidden = false; loadRecentSites(); };
+
+    // Startup Auto-Roll Toggle (default ON so the app opens straight into a fresh new website template!)
+    if (localStorage.getItem('myhtml-auto-roll-startup') === null) {
+      localStorage.setItem('myhtml-auto-roll-startup', 'true');
+    }
+    const autoRollOn = localStorage.getItem('myhtml-auto-roll-startup') === 'true';
+    const wCheck = $('#wAutoRollStartup');
+    const ctCheck = $('#ctAutoStartupCheck');
+    const syncAutoCheck = (val) => {
+      localStorage.setItem('myhtml-auto-roll-startup', val ? 'true' : 'false');
+      if (wCheck) wCheck.checked = val;
+      if (ctCheck) ctCheck.checked = val;
+      toast(val ? '🚀 Startup Mode: Will open a fresh website template on launch!' : '🏠 Startup Mode: Will show Welcome screen on launch');
+    };
+    if (wCheck) { wCheck.checked = autoRollOn; wCheck.onchange = (e) => syncAutoCheck(e.target.checked); }
+    if (ctCheck) { ctCheck.checked = autoRollOn; ctCheck.onchange = (e) => syncAutoCheck(e.target.checked); }
+
+    loadRecentSites();
+
+    if (autoRollOn) {
+      await rollFreshSite();
+    }
+  }
+
+  async function loadRecentSites() {
+    const grid = $('#recentGrid');
+    try {
+      const recents = await api.getRecentProjects();
+      if (!recents || !recents.length) {
+        grid.innerHTML = '<div class="muted small" style="padding:10px;">No saved websites yet. Paste an address above to copy your first site!</div>';
+        return;
+      }
+      grid.innerHTML = recents.map((r) => {
+        const dateStr = new Date(r.mtime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const fontBadge = r.fontCount > 0 ? `<span class="badge">Aa ${r.fontCount} fonts</span>` : '';
+        return `<div class="recent-item" data-dir="${esc(r.dir)}">
+          <div class="name">🌐 ${esc(r.name)}</div>
+          <div class="meta">${fontBadge} <span>${r.pages} pg</span> <span>${dateStr}</span></div>
+        </div>`;
+      }).join('');
+      $$('.recent-item', grid).forEach((el) => {
+        el.onclick = async () => {
+          await autosave();
+          const info = await api.projectInfo(el.dataset.dir);
+          enter(info);
+        };
+      });
+    } catch (e) {
+      grid.innerHTML = '<div class="muted small" style="padding:10px;">Ready to create or copy sites.</div>';
+    }
+  }
+
+  /* ---------- enter project ---------- */
+  async function enter(info) {
+    if (!info) return;
+    Object.assign(S, { dir: info.dir, base: info.base, name: info.name, pages: info.pages, hist: [], hi: -1 });
+    $('#welcome').hidden = true;
+    $('#app').hidden = false;
+    $('#projName').textContent = info.name;
+    renderPages();
+    renderAddPanel();
+    await refreshFontsAndAssets();
+    await loadPage(info.pages.includes('index.html') ? 'index.html' : info.pages[0]);
+  }
+
+  async function refreshFontsAndAssets() {
+    try {
+      S.fonts = await api.listFonts(S.dir) || [];
+      $('#fontCountBadge').textContent = S.fonts.length;
+      renderFonts();
+    } catch (e) { console.error('Error fetching fonts:', e); }
+
+    try {
+      S.assets = await api.listAssets(S.dir) || { images: [], fonts: [], css: [], other: [] };
+      renderAssets();
+    } catch (e) { console.error('Error fetching assets:', e); }
+  }
+
+  /* ---------- clone dialog ---------- */
+  let dirEdited = false, confirmDir = null;
+  const resetConfirm = () => { confirmDir = null; $('#cGo').textContent = 'Copy Website'; $('#cErr').textContent = ''; };
+  async function suggestDir() {
+    if (!dirEdited) $('#cDir').value = await api.defaultCloneDir(normUrl($('#cUrl').value) || 'website');
+    resetConfirm();
+  }
+  function openClone(initialUrl = '') {
+    $('#cloneModal').hidden = false;
+    $('#cLog').hidden = true;
+    $('#cLog').textContent = '';
+    $('#cErr').textContent = '';
+    dirEdited = false;
+    if (initialUrl) $('#cUrl').value = initialUrl;
+    suggestDir();
+    $('#cUrl').focus();
+  }
+  $('#cCancel').onclick = () => ($('#cloneModal').hidden = true);
+  $('#cUrl').oninput = suggestDir;
+  $('#cDir').oninput = () => { dirEdited = true; resetConfirm(); };
+  $('#cBrowse').onclick = async () => {
+    const d = await api.pickFolder('Choose where to save the website', $('#cDir').value);
+    if (d) { $('#cDir').value = d; dirEdited = true; resetConfirm(); }
+  };
+  api.onCloneProgress((m) => {
+    const l = $('#cLog');
+    l.hidden = false;
+    l.textContent += m + '\n';
+    l.scrollTop = l.scrollHeight;
+  });
+  $('#cGo').onclick = async () => {
+    let url = normUrl($('#cUrl').value);
+    let dir = $('#cDir').value.trim();
+    const err = $('#cErr');
+    err.textContent = '';
+    if (!url) { err.textContent = 'Please type or paste a web address (e.g. apple.com)'; $('#cUrl').focus(); return; }
+
+    const btn = $('#cGo');
+    btn.disabled = true;
+    btn.textContent = '⏳ Copying website & fonts…';
+    const lg = $('#cLog');
+    lg.hidden = false;
+    lg.textContent = `Connecting to ${url}…\nDownloading pages, layouts, images and fonts…\n`;
+
+    try {
+      const confirmed = confirmDir === dir;
+      const info = await api.clone({ url, dir, confirmed, maxPages: +$('#cPages').value, stripScripts: $('#cStrip').checked });
+      if (info && info.needsConfirm) {
+        confirmDir = info.targetDir || dir;
+        err.textContent = 'That folder already has files. Click "Copy anyway" to overwrite, or choose another folder.';
+        btn.disabled = false;
+        btn.textContent = 'Copy anyway';
+        return;
+      }
+      if (info) {
+        $('#cloneModal').hidden = true;
+        await enter(info);
+        toast(`Copied ${info.result.pages.length} page(s) and captured ${S.fonts.length} fonts!`);
+      }
+    } catch (e) {
+      err.textContent = cleanErr(e);
+      lg.textContent += `\nError: ${cleanErr(e)}\n`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Copy Website';
+  };
+  ['#cUrl', '#cDir'].forEach((s) => $(s).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#cGo').click(); } }));
+
+  /* ---------- theme & full screen ---------- */
+  const setTheme = (t) => { document.documentElement.dataset.theme = t; localStorage.setItem('myhtml-theme', t); };
+  setTheme(localStorage.getItem('myhtml-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+  $$('.themeBtn').forEach((b) => (b.onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')));
+  $$('.fsBtn').forEach((b) => (b.onclick = () => api.fullscreen()));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'F11') { e.preventDefault(); api.fullscreen(); }
+    else if (e.key === 'Escape' && !$('#cloneModal').hidden) $('#cloneModal').hidden = true;
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleBonesMode(); }
+  });
+
+  /* ---------- canvas / document & layout boxes ---------- */
+  const BASE_EDIT_CSS = `
+    .__mh-hover { outline: 2px dashed #818cf8 !important; outline-offset: -2px; cursor: pointer; }
+    .__mh-sel { outline: 2px solid #6366f1 !important; outline-offset: -2px; }
+    [contenteditable=true] { outline: 2px solid #10b981 !important; cursor: text; }
+    #__mh_drop { height: 4px; background: #6366f1; border-radius: 2px; margin: -2px 0; position: relative; z-index: 99999; }
+    html { scroll-behavior: auto !important; }
+  `;
+
+  const BONES_CSS = `
+    header, nav, main, section, article, footer, aside {
+      outline: 1px dashed rgba(139, 92, 246, 0.45) !important;
+      position: relative;
+    }
+    header::before, nav::before, main::before, section::before, article::before, footer::before, aside::before {
+      content: attr(data-bone-tag);
+      position: absolute;
+      top: 0; left: 0;
+      background: #8b5cf6;
+      color: #fff;
+      font-size: 9px;
+      font-family: Consolas, monospace;
+      padding: 1px 4px;
+      border-radius: 0 0 3px 0;
+      opacity: 0.85;
+      z-index: 1000;
+      pointer-events: none;
+    }
+    .__mh-bone-flex {
+      outline: 1px dashed rgba(245, 158, 11, 0.6) !important;
+      position: relative;
+    }
+    .__mh-bone-flex::before {
+      content: 'row (flex)';
+      position: absolute;
+      top: 0; right: 0;
+      background: #f59e0b;
+      color: #000;
+      font-size: 8.5px;
+      font-weight: 700;
+      font-family: Consolas, monospace;
+      padding: 1px 4px;
+      border-radius: 0 0 0 3px;
+      z-index: 1000;
+      pointer-events: none;
+    }
+    .__mh-bone-grid {
+      outline: 1px dashed rgba(6, 182, 212, 0.6) !important;
+      position: relative;
+    }
+    .__mh-bone-grid::before {
+      content: 'grid';
+      position: absolute;
+      top: 0; right: 0;
+      background: #06b6d4;
+      color: #000;
+      font-size: 8.5px;
+      font-weight: 700;
+      font-family: Consolas, monospace;
+      padding: 1px 4px;
+      border-radius: 0 0 0 3px;
+      z-index: 1000;
+      pointer-events: none;
+    }
+  `;
+
+  function toggleBonesMode() {
+    S.bonesMode = !S.bonesMode;
+    $('#bBones').classList.toggle('on', S.bonesMode);
+    applyBonesToDoc();
+    renderBonesPanel();
+    toast(S.bonesMode ? '🩻 Showing layout boxes & grids' : 'Layout boxes hidden');
+  }
+  $('#bBones').onclick = toggleBonesMode;
+  $('#bFontsPill').onclick = () => {
+    $$('#leftTabs button').forEach((x) => x.classList.toggle('on', x.dataset.t === 'fonts'));
+    ['add', 'pages', 'fonts', 'assets', 'layers', 'bones'].forEach((t) => ($('#p-' + t).hidden = t !== 'fonts'));
+  };
+
+  function applyBonesToDoc() {
+    if (!doc) return;
+    let bStyle = doc.getElementById('__mh_bones');
+    if (S.bonesMode) {
+      if (!bStyle) {
+        bStyle = doc.createElement('style');
+        bStyle.id = '__mh_bones';
+        doc.head.appendChild(bStyle);
+      }
+      bStyle.textContent = BONES_CSS;
+
+      $$('header, nav, main, section, article, footer, aside', doc).forEach((el) => {
+        el.setAttribute('data-bone-tag', el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''));
+      });
+      $$('*', doc.body).forEach((el) => {
+        const comp = doc.defaultView.getComputedStyle(el);
+        if (comp.display === 'flex' || comp.display === 'inline-flex') el.classList.add('__mh-bone-flex');
+        if (comp.display === 'grid' || comp.display === 'inline-grid') el.classList.add('__mh-bone-grid');
+      });
+    } else {
+      if (bStyle) bStyle.remove();
+      $$('.__mh-bone-flex', doc).forEach((el) => el.classList.remove('__mh-bone-flex'));
+      $$('.__mh-bone-grid', doc).forEach((el) => el.classList.remove('__mh-bone-grid'));
+    }
+  }
+
+  async function loadPage(name) {
+    S.page = name; S.dirty = false; S.hist = []; S.hi = -1; S.sel = null;
+    const html = await api.readPage(S.dir, name);
+    renderHtml(html);
+    renderPages();
+    updateUi();
+    $('#codeView').hidden = true;
+  }
+
+  function renderHtml(html, live = false) {
+    html = html.replace(/<base\b[^>]*>/gi, '');
+    const inject = `<base id="__mh_base" href="${S.base}">` + (live ? '' : `<style id="__mh_style">${BASE_EDIT_CSS}</style>`);
+    html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + inject) : inject + html;
+    frame.setAttribute('sandbox', live
+      ? 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads'
+      : 'allow-same-origin');
+    frame.onload = () => {
+      doc = frame.contentDocument;
+      if (!live) {
+        attach();
+        if (S.bonesMode) applyBonesToDoc();
+      } else {
+        attachLiveBridge();
+      }
+    };
+    frame.srcdoc = html;
+  }
+
+  function serialize() {
+    if (!doc) return '';
+    const c = doc.documentElement.cloneNode(true);
+    $$('#__mh_base, #__mh_style, #__mh_bones, #__mh_drop', c).forEach((n) => n.remove());
+    $$('[contenteditable]', c).forEach((n) => n.removeAttribute('contenteditable'));
+    $$('[data-bone-tag], [data-hub-bound]', c).forEach((n) => {
+      n.removeAttribute('data-bone-tag');
+      n.removeAttribute('data-hub-bound');
+    });
+    $$('.__mh-hover, .__mh-sel, .__mh-bone-flex, .__mh-bone-grid', c).forEach((n) => {
+      n.classList.remove('__mh-hover', '__mh-sel', '__mh-bone-flex', '__mh-bone-grid');
+      if (!n.getAttribute('class')) n.removeAttribute('class');
+    });
+    const dt = doc.doctype ? `<!DOCTYPE ${doc.doctype.name}>` : '<!DOCTYPE html>';
+    return dt + '\n' + c.outerHTML + '\n';
+  }
+
+  function commitFromLiveOrEdit() {
+    if (!doc) return;
+    const snap = serialize();
+    if (snap !== S.hist[S.hi]) {
+      S.hist = S.hist.slice(0, S.hi + 1);
+      S.hist.push(snap);
+      if (S.hist.length > 80) S.hist.shift();
+      S.hi = S.hist.length - 1;
+      S.dirty = true;
+    }
+    updateUi();
+    if (S.live) {
+      renderHtml(snap, true);
+    } else {
+      renderLayers();
+      renderBonesPanel();
+      renderInspector();
+      renderComputed();
+    }
+  }
+
+  /* ---------- Single App & Multi-App Hub helpers ---------- */
+  async function chooseAppForContainer(container, mode = 'folder') {
+    if (!S.dir) { toast('Please open or create a website first'); return; }
+    try {
+      const res = mode === 'file' ? await api.importAppFile(S.dir) : await api.importApp(S.dir);
+      if (!res || !res.success) return;
+      applyAppToContainer(container, res);
+      toast(`🚀 Loaded "${res.title}"! Click "▶ Test App" at the top to run it live.`);
+    } catch (e) {
+      toast('Import error: ' + cleanErr(e));
+    }
+  }
+
+  function applyAppToContainer(container, appData) {
+    container.setAttribute('data-app-src', appData.relPath);
+    container.setAttribute('data-app-title', appData.title);
+    const titleEl = container.querySelector('.myhtml-app-title');
+    if (titleEl) titleEl.textContent = appData.title;
+    const ph = container.querySelector('.myhtml-app-placeholder');
+    if (ph) ph.style.display = 'none';
+    const fr = container.querySelector('.myhtml-app-frame');
+    if (fr) {
+      fr.setAttribute('src', appData.relPath);
+      fr.style.display = 'block';
+    }
+    const pop = container.querySelector('.myhtml-app-btn-pop');
+    if (pop) {
+      pop.setAttribute('href', appData.relPath);
+      pop.style.display = 'inline-flex';
+    }
+    commitFromLiveOrEdit();
+    if (!S.live) select(container);
+    refreshFontsAndAssets();
+  }
+
+  function getHubApps(hub) {
+    if (!hub) return [];
+    return [...hub.querySelectorAll('.myhtml-hub-nav .myhtml-hub-item')].map((btn) => ({
+      title: btn.getAttribute('data-app-title') || btn.textContent.trim(),
+      src: btn.getAttribute('data-app-src') || '',
+      icon: btn.getAttribute('data-app-icon') || '📦',
+      active: btn.classList.contains('active')
+    }));
+  }
+
+  function setHubApps(hub, apps, activeIndex = 0) {
+    if (!hub) return;
+    const nav = hub.querySelector('.myhtml-hub-nav');
+    if (!nav) return;
+    const idx = apps.length ? Math.max(0, Math.min(activeIndex, apps.length - 1)) : -1;
+    nav.innerHTML = apps.map((a, i) => {
+      const on = i === idx;
+      const icon = a.icon || '📦';
+      const title = a.title || 'Web App';
+      const src = a.src || a.relPath || '';
+      return `<button type="button" class="myhtml-hub-item${on ? ' active' : ''}" data-app-src="${esc(src)}" data-app-title="${esc(title)}" data-app-icon="${esc(icon)}" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid ${on ? '#4f46e5' : 'transparent'};background:${on ? 'rgba(79,70,229,0.22)' : 'transparent'};color:${on ? '#ffffff' : '#cbd5e1'};font-size:12.5px;font-weight:${on ? '600' : '500'};cursor:pointer;">
+        <span style="font-size:15px;">${esc(icon)}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${esc(title)}</span>
+      </button>`;
+    }).join('');
+
+    const countEl = hub.querySelector('.myhtml-hub-count');
+    if (countEl) countEl.textContent = `${apps.length} App${apps.length === 1 ? '' : 's'}`;
+
+    const cur = idx >= 0 ? apps[idx] : null;
+    const fr = hub.querySelector('.myhtml-hub-frame');
+    const actTitle = hub.querySelector('.myhtml-hub-active-title');
+    const pop = hub.querySelector('.myhtml-hub-pop');
+    if (cur) {
+      const curSrc = cur.src || cur.relPath || 'about:blank';
+      if (fr) fr.setAttribute('src', curSrc);
+      if (actTitle) actTitle.textContent = `${cur.icon || '📦'} ${cur.title}`;
+      if (pop) pop.setAttribute('href', curSrc);
+    } else {
+      if (fr) fr.setAttribute('src', 'about:blank');
+      if (actTitle) actTitle.textContent = 'No apps loaded yet';
+    }
+
+    const gridItems = hub.querySelector('.myhtml-hub-grid-items');
+    if (gridItems) {
+      gridItems.innerHTML = apps.map((a) => `
+        <div class="myhtml-hub-card" style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:18px;cursor:pointer;display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:28px;">${esc(a.icon || '📦')}</div>
+          <div style="font-weight:700;font-size:14px;color:#fff;">${esc(a.title)}</div>
+          <div style="font-size:11px;color:#34d399;font-weight:600;">▶ Launch in Screen</div>
+        </div>
+      `).join('');
+    }
+
+    commitFromLiveOrEdit();
+  }
+
+  async function addAppsToHub(hub, mode = 'folder') {
+    if (!S.dir || !hub) return;
+    try {
+      let res = null;
+      if (mode === 'bulk') res = await api.importAppBulk(S.dir);
+      else if (mode === 'file') res = await api.importAppFile(S.dir);
+      else if (mode === 'url') {
+        const v = await ask('🌐 Grab Web App from URL', [
+          { label: 'Web App Address (URL)', placeholder: 'https://example.com/tool' },
+          { label: 'App Display Name (optional)', placeholder: 'My Web Tool' }
+        ]);
+        if (!v || !v[0]) return;
+        toast('⏳ Downloading web app & WASM/JS files…');
+        res = await api.cloneAppUrl({ projectDir: S.dir, url: normUrl(v[0]), customTitle: v[1] || '' });
+      } else {
+        res = await api.importApp(S.dir);
+      }
+
+      if (!res || !res.success) return;
+      const incoming = res.apps && res.apps.length ? res.apps : [res];
+      const existing = getHubApps(hub);
+      let activeIdx = existing.length;
+
+      for (const item of incoming) {
+        const foundIdx = existing.findIndex((x) => x.src === item.relPath);
+        const entry = {
+          title: item.title,
+          src: item.relPath,
+          icon: item.icon || '📦'
+        };
+        if (foundIdx >= 0) {
+          existing[foundIdx] = entry;
+          activeIdx = foundIdx;
+        } else {
+          existing.push(entry);
+          activeIdx = existing.length - 1;
+        }
+      }
+
+      setHubApps(hub, existing, activeIdx);
+      if (!S.live) select(hub);
+      refreshFontsAndAssets();
+
+      if (incoming.length > 1) {
+        toast(`📚 Bunged ${incoming.length} apps into your single-screen Hub!`);
+      } else {
+        toast(`🧰 Added "${incoming[0].title}" to your App Hub!`);
+      }
+    } catch (e) {
+      toast('Import error: ' + cleanErr(e));
+    }
+  }
+
+  function addAppObjectToPageOrHub(app) {
+    if (!doc) return;
+    // If there is an App Hub on the page, add it to the Hub and switch to it!
+    const hub = (S.sel && S.sel.closest && S.sel.closest('.myhtml-app-hub')) || doc.querySelector('.myhtml-app-hub');
+    if (hub) {
+      const existing = getHubApps(hub);
+      let idx = existing.findIndex((x) => x.src === app.relPath);
+      if (idx >= 0) {
+        existing[idx].title = app.title;
+      } else {
+        existing.push({ title: app.title, src: app.relPath, icon: app.icon || '📦' });
+        idx = existing.length - 1;
+      }
+      setHubApps(hub, existing, idx);
+      if (!S.live) select(hub);
+      hub.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      toast(`🧰 Added "${app.title}" into your Single-Screen App Hub!`);
+      return;
+    }
+    insertImportedApp(app);
+  }
+
+  function insertImportedApp(app) {
+    if (!doc || S.live) return;
+    const b = BLOCKS.find((x) => x.id === 'app-imported');
+    const tpl = doc.createElement('template');
+    tpl.innerHTML = b.html.trim();
+    const node = tpl.content.firstElementChild;
+    const anchor = S.sel && S.sel !== doc.body ? topLevel(S.sel) : null;
+    if (anchor) anchor.insertAdjacentElement('afterend', node);
+    else doc.body.appendChild(node);
+    applyAppToContainer(node, app);
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast(`📦 Added "${app.title}" to page! Click "▶ Test App" at the top to try it live.`);
+  }
+
+  function handleAppAndHubButtons(e) {
+    const t = e.target;
+    if (!t || !t.closest) return false;
+
+    const testBtn = t.closest('.myhtml-app-btn-test');
+    if (testBtn) {
+      e.preventDefault();
+      if (!S.live) $('#bPreview').click();
+      else toast('▶ Already in Live Test Mode! Click apps in the sidebar to switch.');
+      return true;
+    }
+
+    const hubAddBtn = t.closest('.myhtml-hub-btn-add');
+    if (hubAddBtn) {
+      e.preventDefault();
+      addAppsToHub(hubAddBtn.closest('.myhtml-app-hub'), 'folder');
+      return true;
+    }
+    const hubBulkBtn = t.closest('.myhtml-hub-btn-bulk');
+    if (hubBulkBtn) {
+      e.preventDefault();
+      addAppsToHub(hubBulkBtn.closest('.myhtml-app-hub'), 'bulk');
+      return true;
+    }
+    const hubFileBtn = t.closest('.myhtml-hub-btn-file');
+    if (hubFileBtn) {
+      e.preventDefault();
+      addAppsToHub(hubFileBtn.closest('.myhtml-app-hub'), 'file');
+      return true;
+    }
+
+    const pickBtn = t.closest('.myhtml-app-btn-pick');
+    if (pickBtn) {
+      e.preventDefault();
+      const container = pickBtn.closest('.myhtml-app-embed');
+      if (container) chooseAppForContainer(container, 'folder');
+      return true;
+    }
+    const fileBtn = t.closest('.myhtml-app-btn-file');
+    if (fileBtn) {
+      e.preventDefault();
+      const container = fileBtn.closest('.myhtml-app-embed');
+      if (container) chooseAppForContainer(container, 'file');
+      return true;
+    }
+
+    const popBtn = t.closest('.myhtml-app-btn-pop');
+    if (popBtn) {
+      e.preventDefault();
+      const rel = popBtn.getAttribute('href');
+      if (rel && rel !== '#' && rel !== 'about:blank') {
+        api.openInBrowser(S.dir, rel);
+      }
+      return true;
+    }
+
+    if (!S.live) {
+      const hubItem = t.closest('.myhtml-hub-item');
+      if (hubItem) {
+        e.preventDefault();
+        const hub = hubItem.closest('.myhtml-app-hub');
+        if (hub) {
+          const allBtns = [...hub.querySelectorAll('.myhtml-hub-nav .myhtml-hub-item')];
+          const idx = allBtns.indexOf(hubItem);
+          setHubApps(hub, getHubApps(hub), idx >= 0 ? idx : 0);
+          select(hub);
+          return true;
+        }
+      }
+      const viewBtn = t.closest('.myhtml-hub-view-btn');
+      if (viewBtn) {
+        e.preventDefault();
+        const hub = viewBtn.closest('.myhtml-app-hub');
+        const mode = viewBtn.getAttribute('data-hub-view');
+        if (hub) {
+          const gridWrap = hub.querySelector('.myhtml-hub-grid');
+          if (gridWrap) gridWrap.style.display = mode === 'grid' ? 'block' : 'none';
+          hub.querySelectorAll('.myhtml-hub-view-btn').forEach((b) => {
+            const on = b.getAttribute('data-hub-view') === mode;
+            b.style.background = on ? '#334155' : '#1e293b';
+            b.style.color = on ? '#fff' : '#94a3b8';
+          });
+          setHubApps(hub, getHubApps(hub), Math.max(0, getHubApps(hub).findIndex(a => a.active)));
+          select(hub);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function attachLiveBridge() {
+    if (!doc) return;
+    doc.addEventListener('click', (e) => {
+      handleAppAndHubButtons(e);
+    }, true);
+  }
+
+  function attach() {
+    S.hist = [serialize()]; S.hi = 0; updateUi(); renderLayers(); renderInspector(); renderBonesPanel();
+    const root = doc.documentElement;
+    doc.addEventListener('click', (e) => {
+      if (handleAppAndHubButtons(e)) return;
+      e.preventDefault();
+      if (e.target.isContentEditable && e.target === editing) return;
+      select(e.target === root ? doc.body : e.target);
+    }, true);
+    doc.addEventListener('submit', (e) => e.preventDefault(), true);
+    doc.addEventListener('dblclick', (e) => startEdit(e.target));
+    doc.addEventListener('mouseover', (e) => {
+      $$('.__mh-hover', doc).forEach((n) => n.classList.remove('__mh-hover'));
+      if (e.target !== doc.body && e.target !== root) e.target.classList.add('__mh-hover');
+    });
+    doc.addEventListener('mouseout', (e) => e.target.classList && e.target.classList.remove('__mh-hover'));
+    doc.addEventListener('keydown', onKey);
+    doc.addEventListener('dragover', onDragOver);
+    doc.addEventListener('drop', onDrop);
+    doc.addEventListener('dragleave', (e) => { if (!e.relatedTarget) clearDrop(); });
+  }
+  document.addEventListener('keydown', onKey);
+
+  let editing = null;
+  function startEdit(el) {
+    if (!el || el === doc.body || /^(IMG|VIDEO|IFRAME|HR|INPUT|SELECT|CANVAS)$/.test(el.tagName)) return;
+    editing = el; el.setAttribute('contenteditable', 'true'); el.focus();
+    const end = () => { el.removeAttribute('contenteditable'); el.removeEventListener('blur', end); editing = null; commit(); };
+    el.addEventListener('blur', end);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') el.blur();
+      e.stopPropagation();
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
+    });
+  }
+
+  function select(el) {
+    if (S.sel) S.sel.classList.remove('__mh-sel');
+    S.sel = el && el !== doc.documentElement ? el : null;
+    if (S.sel && S.sel !== doc.body) S.sel.classList.add('__mh-sel');
+    renderInspector();
+    renderLayers();
+    renderBreadcrumbs();
+    renderComputed();
+    showElHtml();
+  }
+
+  const FRIENDLY_NAMES = {
+    'H1': 'Main Title',
+    'H2': 'Heading',
+    'H3': 'Subheading',
+    'IFRAME': 'App Viewport',
+    'H4': 'Small Heading',
+    'P': 'Paragraph Text',
+    'A': 'Button / Link',
+    'BUTTON': 'Button',
+    'IMG': 'Photo / Image',
+    'CANVAS': 'Arcade / Tool Canvas',
+    'HEADER': 'Header Section',
+    'NAV': 'Menu Bar',
+    'SECTION': 'Page Section',
+    'ARTICLE': 'Article Box',
+    'FOOTER': 'Footer Section',
+    'DIV': 'Container Box',
+    'SPAN': 'Text Clip',
+    'INPUT': 'Input Field',
+    'TEXTAREA': 'Text Box',
+    'FORM': 'Form'
+  };
+
+  function renderBreadcrumbs() {
+    const bar = $('#crumbs');
+    if (!S.sel || S.sel === doc.body) {
+      bar.innerHTML = '<span class="crumb current">Page Body</span>';
+      return;
+    }
+    const stack = [];
+    let cur = S.sel;
+    while (cur && cur !== doc.documentElement) {
+      stack.unshift(cur);
+      cur = cur.parentElement;
+    }
+    bar.innerHTML = stack.map((node, i) => {
+      const isCur = i === stack.length - 1;
+      const tag = node.tagName.toUpperCase();
+      const friendly = FRIENDLY_NAMES[tag] || node.tagName.toLowerCase();
+      const id = node.id ? '#' + node.id : '';
+      return `<span class="crumb ${isCur ? 'current' : ''}" data-i="${i}" title="${tag}">${esc(friendly)}${esc(id)}</span>`;
+    }).join(' <span class="muted">›</span> ');
+
+    $$('.crumb', bar).forEach((c, idx) => {
+      c.onclick = () => select(stack[idx]);
+    });
+  }
+
+  /* ---------- history ---------- */
+  function commit() {
+    if (!doc) return;
+    const snap = serialize();
+    if (snap === S.hist[S.hi]) return;
+    S.hist = S.hist.slice(0, S.hi + 1);
+    S.hist.push(snap);
+    if (S.hist.length > 80) S.hist.shift();
+    S.hi = S.hist.length - 1;
+    S.dirty = true;
+    updateUi();
+    renderLayers();
+    renderBonesPanel();
+    renderComputed();
+  }
+  function go(i) {
+    if (i < 0 || i >= S.hist.length) return;
+    S.hi = i; S.sel = null; S.dirty = true;
+    renderHtml(S.hist[i]);
+    const keep = S.hist.slice(), idx = i;
+    frame.addEventListener('load', () => {
+      S.hist = keep; S.hi = idx; updateUi(); renderInspector(); renderLayers(); renderBonesPanel();
+    }, { once: true });
+  }
+  $('#bUndo').onclick = () => go(S.hi - 1);
+  $('#bRedo').onclick = () => go(S.hi + 1);
+
+  function updateUi() {
+    $('#bUndo').disabled = S.hi <= 0;
+    $('#bRedo').disabled = S.hi >= S.hist.length - 1;
+    $('#bSave').textContent = S.dirty ? '💾 Save •' : '💾 Save';
+    document.title = `${S.page || ''}${S.dirty ? ' •' : ''} — MyHTML`;
+  }
+  async function save() {
+    if (!doc || S.live) return;
+    await api.writePage(S.dir, S.page, serialize());
+    S.dirty = false;
+    updateUi();
+    toast('Saved ✓');
+  }
+  async function autosave() {
+    if (S.dirty && doc && !S.live) await api.writePage(S.dir, S.page, serialize());
+    S.dirty = false;
+  }
+  $('#bSave').onclick = save;
+
+  function onKey(e) {
+    const t = e.target;
+    if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && k === 's') { e.preventDefault(); save(); }
+    else if (ctrl && k === 'z' && !e.shiftKey) { e.preventDefault(); go(S.hi - 1); }
+    else if (ctrl && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); go(S.hi + 1); }
+    else if (ctrl && k === 'd') { e.preventDefault(); act('dup'); }
+    else if (k === 'delete' || k === 'backspace') { if (S.sel && S.sel !== doc.body) { e.preventDefault(); act('del'); } }
+    else if (k === 'escape') act('parent');
+    else if (k === 'enter' && S.sel) startEdit(S.sel);
+  }
+
+  /* ---------- device & modes ---------- */
+  $$('#devices button').forEach((b) => (b.onclick = () => {
+    $$('#devices button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#canvas').className = 'canvas ' + (b.dataset.d === 'desktop' ? '' : b.dataset.d);
+  }));
+
+  $('#bPreview').onclick = async () => {
+    if (!S.live) {
+      const html = serialize();
+      S.live = true;
+      $('#bPreview').textContent = '✎ Back to Editor';
+      $('#bPreview').classList.add('live-on');
+      frame.onload = null;
+      renderHtml(html, true);
+      toast('▶ Test Mode active: Mini-apps and buttons are live!');
+    } else {
+      S.live = false;
+      $('#bPreview').textContent = '▶ Test App';
+      $('#bPreview').classList.remove('live-on');
+      renderHtml(S.hist[S.hi]);
+      toast('✎ Returned to Editor mode.');
+    }
+  };
+
+  $('#bBrowser').onclick = async () => { await save(); api.openInBrowser(S.dir, S.page); };
+  $('#bFolder').onclick = () => api.openFolder(S.dir);
+  $('#bCode').onclick = () => {
+    if (S.live) return;
+    $('#codeText').value = serialize();
+    $('#codeView').hidden = false;
+  };
+  $('#codeCancel').onclick = () => ($('#codeView').hidden = true);
+  $('#codeApply').onclick = () => {
+    const html = $('#codeText').value;
+    $('#codeView').hidden = true;
+    const keep = S.hist.slice(0, S.hi + 1);
+    S.sel = null;
+    renderHtml(html);
+    frame.addEventListener('load', () => {
+      S.hist = keep; S.hi = keep.length - 1; commit(); S.dirty = true; updateUi();
+    }, { once: true });
+  };
+
+  /* ---------- navigation tabs ---------- */
+  const ALL_LEFT_TABS = ['add', 'pages', 'fonts', 'assets', 'layers', 'bones'];
+  $$('#leftTabs button').forEach((b) => (b.onclick = () => {
+    $$('#leftTabs button').forEach((x) => x.classList.toggle('on', x === b));
+    ALL_LEFT_TABS.forEach((t) => {
+      const el = $('#p-' + t);
+      if (el) el.hidden = t !== b.dataset.t;
+    });
+  }));
+  $$('#rightTabs button').forEach((b) => (b.onclick = () => {
+    $$('#rightTabs button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#inspector').hidden = b.dataset.t !== 'design';
+    $('#codePanel').hidden = b.dataset.t !== 'code';
+    $('#computedPanel').hidden = b.dataset.t !== 'computed';
+    if (b.dataset.t === 'code') showElHtml();
+    if (b.dataset.t === 'computed') renderComputed();
+  }));
+
+  /* ---------- blocks (Add Tab) ---------- */
+  function renderAddPanel() {
+    let h = '';
+    const cats = ['Apps & Games', 'Sections', 'Elements'];
+    for (const cat of cats) {
+      const list = BLOCKS.filter((b) => b.cat === cat);
+      if (!list.length) continue;
+      const catHeader = cat === 'Apps & Games' ? '🕹️ Live Mini-Apps & Tools' : cat === 'Sections' ? '📄 Page Sections' : '✏️ Basic Text & Elements';
+      h += `<div class="cat">${catHeader}</div><div class="blocks">` +
+        list.map((b) => `<div class="block ${cat === 'Apps & Games' ? 'app-block' : ''}" draggable="true" data-id="${b.id}" title="${esc(b.desc || b.name)}"><i>${b.icon}</i><span>${b.name}</span></div>`).join('') +
+        '</div>';
+    }
+    $('#p-add').innerHTML = h;
+    $$('#p-add .block').forEach((el) => {
+      el.onclick = () => insertBlock(el.dataset.id);
+      el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', 'block:' + el.dataset.id); e.dataTransfer.effectAllowed = 'copy'; };
+    });
+  }
+
+  function topLevel(el) { while (el && el.parentElement !== doc.body) el = el.parentElement; return el; }
+  function insertBlock(id, ref, after = true) {
+    if (!doc || S.live) return;
+    const b = BLOCKS.find((x) => x.id === id);
+    const tpl = doc.createElement('template');
+    tpl.innerHTML = b.html.trim();
+    const node = tpl.content.firstElementChild;
+    const anchor = ref || (S.sel && S.sel !== doc.body ? topLevel(S.sel) : null);
+    if (anchor) anchor.insertAdjacentElement(after ? 'afterend' : 'beforebegin', node);
+    else doc.body.appendChild(node);
+    commit();
+    select(node);
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (b.cat === 'Apps & Games') {
+      toast(`🎮 Added ${b.name}! Click "▶ Test App" at the top to try it live.`);
+    } else {
+      toast(b.name + ' added');
+    }
+  }
+  function dropTarget(e) {
+    const kids = [...doc.body.children].filter((n) => n.id !== '__mh_drop' && !/^(SCRIPT|STYLE)$/.test(n.tagName));
+    if (!kids.length) return { ref: null };
+    for (const k of kids) { const r = k.getBoundingClientRect(); if (e.clientY < r.top + r.height / 2) return { ref: k, after: false }; }
+    return { ref: kids[kids.length - 1], after: true };
+  }
+  function clearDrop() { const d = doc.getElementById('__mh_drop'); if (d) d.remove(); }
+  function onDragOver(e) {
+    e.preventDefault(); clearDrop();
+    const t = dropTarget(e), bar = doc.createElement('div'); bar.id = '__mh_drop';
+    if (!t.ref) doc.body.appendChild(bar); else t.ref.insertAdjacentElement(t.after ? 'afterend' : 'beforebegin', bar);
+  }
+  function onDrop(e) {
+    e.preventDefault();
+    const data = e.dataTransfer.getData('text/plain');
+    const t = dropTarget(e);
+    clearDrop();
+    if (data.startsWith('block:')) insertBlock(data.slice(6), t.ref, t.after);
+  }
+
+  /* ---------- outline (Layers) ---------- */
+  function renderLayers() {
+    const p = $('#p-layers');
+    if (!doc) return;
+    const rows = [];
+    (function walk(el, d) {
+      for (const c of el.children) {
+        if (/^(SCRIPT|STYLE|LINK|META|BR|TEMPLATE|NOSCRIPT)$/.test(c.tagName) || c.id === '__mh_drop') continue;
+        const tag = c.tagName.toUpperCase();
+        const friendly = FRIENDLY_NAMES[tag] || c.tagName.toLowerCase();
+        const txt = (c.children.length === 0 ? c.textContent.trim().slice(0, 22) : '');
+        rows.push({ c, d, html: `${'&nbsp;'.repeat(d * 2)}<b>${friendly}</b>${c.id ? ' #' + esc(c.id) : ''} <small>${esc(txt)}</small>` });
+        if (d < 7) walk(c, d + 1);
+      }
+    })(doc.body, 0);
+    p.innerHTML = rows.length ? rows.map((r, i) => `<div class="row ${r.c === S.sel ? 'on' : ''}" data-i="${i}">${r.html}</div>`).join('') : '<div class="muted small" style="padding:10px;text-align:center;">Empty page</div>';
+    $$('.row', p).forEach((el) => (el.onclick = () => { const c = rows[+el.dataset.i].c; select(c); c.scrollIntoView({ block: 'center' }); }));
+  }
+
+  /* ---------- bones panel (Layout) ---------- */
+  function renderBonesPanel() {
+    const p = $('#p-bones');
+    if (!doc) { p.innerHTML = '<div class="muted small">Open a page to inspect layout boxes.</div>'; return; }
+
+    const flexNodes = [], gridNodes = [], landmarkNodes = [];
+    $$('*', doc.body).forEach((el) => {
+      if (/^(SCRIPT|STYLE|BR|TEMPLATE|NOSCRIPT)$/.test(el.tagName)) return;
+      const comp = doc.defaultView.getComputedStyle(el);
+      if (comp.display === 'flex' || comp.display === 'inline-flex') flexNodes.push(el);
+      else if (comp.display === 'grid' || comp.display === 'inline-grid') gridNodes.push(el);
+      if (/^(HEADER|NAV|MAIN|SECTION|ARTICLE|FOOTER|ASIDE)$/.test(el.tagName)) landmarkNodes.push(el);
+    });
+
+    let h = `
+      <div style="margin-bottom:8px;">
+        <button class="btn full ${S.bonesMode ? 'primary' : ''}" id="btnToggleBonesInner">
+          ${S.bonesMode ? '🩻 Hide Layout Boxes' : '🩻 Show Layout Boxes'}
+        </button>
+      </div>
+      <div class="bones-summary">
+        <div class="bone-metric"><div class="val">${flexNodes.length}</div><div class="lbl">Side-by-Side (Flex)</div></div>
+        <div class="bone-metric"><div class="val">${gridNodes.length}</div><div class="lbl">Grids</div></div>
+        <div class="bone-metric"><div class="val">${landmarkNodes.length}</div><div class="lbl">Sections</div></div>
+        <div class="bone-metric"><div class="val">${doc.body.querySelectorAll('*').length}</div><div class="lbl">Items</div></div>
+      </div>
+      <div class="sec-title">Click Any Box to Style It</div>
+    `;
+
+    const allBones = [
+      ...landmarkNodes.map(el => ({ el, type: 'container', badge: el.tagName.toLowerCase() })),
+      ...flexNodes.map(el => ({ el, type: 'flex', badge: 'row' })),
+      ...gridNodes.map(el => ({ el, type: 'grid', badge: 'grid' }))
+    ];
+
+    if (!allBones.length) {
+      h += '<div class="muted small" style="padding:10px;">No complex layout boxes found.</div>';
+    } else {
+      h += allBones.map((b, i) => {
+        const idCls = (b.el.id ? '#' + b.el.id : '') + (b.el.className && typeof b.el.className === 'string' ? '.' + b.el.className.replace(/__mh-[a-z-]+/g, '').trim().split(/\s+/)[0] : '');
+        const tag = b.el.tagName.toUpperCase();
+        const friendly = FRIENDLY_NAMES[tag] || b.el.tagName.toLowerCase();
+        return `<div class="bone-tree-item ${b.type}" data-bi="${i}">
+          <span class="bone-badge ${b.type === 'container' ? 'box' : b.type}">${b.badge}</span>
+          <span style="font-weight:600;font-size:11px;">${friendly}</span>
+          <span class="muted small" style="overflow:hidden;text-overflow:ellipsis;">${esc(idCls)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    p.innerHTML = h;
+    const btn = $('#btnToggleBonesInner');
+    if (btn) btn.onclick = toggleBonesMode;
+    $$('.bone-tree-item', p).forEach((item) => {
+      item.onclick = () => {
+        const idx = +item.dataset.bi;
+        const target = allBones[idx].el;
+        select(target);
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      };
+    });
+  }
+
+  /* ---------- fonts panel (The Font Vault) ---------- */
+  function renderFonts() {
+    const p = $('#p-fonts');
+    if (!S.fonts || !S.fonts.length) {
+      p.innerHTML = `
+        <div class="muted small" style="padding:16px;text-align:center;line-height:1.6;">
+          <strong>No custom fonts captured yet.</strong><br><br>
+          When you copy a website with custom web fonts (like BBC, Apple, or Google), all its fonts appear right here for you to use!
+        </div>
+      `;
+      return;
+    }
+
+    let h = `
+      <div class="font-vault-header">
+        <span style="font-weight:700;font-size:12px;">Captured Fonts (${S.fonts.length})</span>
+        <button class="btn small ghost" id="bRefreshFonts">↻ Refresh</button>
+      </div>
+    `;
+
+    h += S.fonts.map((f, i) => {
+      const formats = [...new Set(f.variants.map(v => v.format.toUpperCase()))].join(', ');
+      const weights = [...new Set(f.variants.map(v => v.weight))].sort().join(' · ');
+      const totalSize = f.variants.reduce((acc, v) => acc + (parseFloat(v.size) || 0), 0);
+      const sizeStr = totalSize > 0 ? `${totalSize.toFixed(1)} KB` : '';
+      const firstDisk = f.variants.find(v => v.diskPath)?.diskPath || '';
+
+      return `
+        <div class="font-card" data-fi="${i}">
+          <div class="font-header">
+            <div>
+              <div class="font-name">${esc(f.family)}</div>
+              <div class="font-meta-pills" style="margin-top:4px;">
+                <span class="font-pill">${formats || 'WOFF2'}</span>
+                <span class="font-pill">${weights ? 'Weights: ' + weights : 'Regular'}</span>
+                ${sizeStr ? `<span class="font-pill">${sizeStr}</span>` : ''}
+              </div>
+            </div>
+          </div>
+          <input class="font-specimen-input" value="The quick brown fox jumps over the lazy dog" style="font-family:'${esc(f.family)}', sans-serif;" spellcheck="false">
+          <div class="font-actions">
+            <button class="btn small" data-fa="apply" title="Apply font to selected element">Aa ➜ Element</button>
+            <button class="btn small" data-fa="body" title="Set as whole page font">Aa ➜ Page</button>
+            <button class="btn small" data-fa="css" title="Copy @font-face CSS">📋 Copy CSS</button>
+            ${firstDisk ? `<button class="btn small" data-fa="folder" data-path="${esc(firstDisk)}" title="Show font file in Windows Explorer">📂 Font File</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    p.innerHTML = h;
+
+    const rf = $('#bRefreshFonts');
+    if (rf) rf.onclick = refreshFontsAndAssets;
+
+    $$('#p-fonts .font-card').forEach((card) => {
+      const f = S.fonts[+card.dataset.fi];
+      $('[data-fa="apply"]', card).onclick = () => {
+        if (!S.sel) { toast('Select something on the page first'); return; }
+        setStyle('font-family', `'${f.family}', sans-serif`);
+        renderInspector();
+        toast(`Applied font: ${f.family}`);
+      };
+      $('[data-fa="body"]', card).onclick = () => {
+        if (!doc) return;
+        doc.body.style.fontFamily = `'${f.family}', sans-serif`;
+        commit();
+        renderInspector();
+        toast(`Set page font: ${f.family}`);
+      };
+      $('[data-fa="css"]', card).onclick = () => {
+        navigator.clipboard.writeText(f.css || `font-family: '${f.family}', sans-serif;`);
+        toast('Font code copied to clipboard');
+      };
+      const fBtn = $('[data-fa="folder"]', card);
+      if (fBtn) {
+        fBtn.onclick = () => api.showItem(fBtn.dataset.path);
+      }
+    });
+  }
+
+  /* ---------- assets panel (Images & Apps) ---------- */
+  async function renderAssets() {
+    const p = $('#p-assets');
+    const images = (S.assets && S.assets.images) || [];
+    let apps = [];
+    try { apps = await api.listApps(S.dir) || []; } catch {}
+
+    let h = `
+      <div style="margin-bottom:14px;">
+        <div class="sec-title" style="margin-top:0;">🧰 Web Apps &amp; Tools (${apps.length})</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px;">
+          <button class="btn primary small" id="bImportNewApp" title="Import an app folder (like XISO dist)">📂 + App Folder</button>
+          <button class="btn primary small" id="bImportBulkApps" style="background:#7c3aed;border-color:#7c3aed;" title="Import a whole folder of 10 or 30 apps at once">📚 + Bulk Folder</button>
+          <button class="btn small" id="bImportHtmlFile" title="Import one or more standalone .html files">📄 + .html File</button>
+          <button class="btn small" id="bImportUrlApp" title="Grab a live web app from a URL">🌐 + From URL</button>
+        </div>
+    `;
+
+    if (!apps.length) {
+      h += `
+        <div class="muted small" style="padding:10px;text-align:center;background:var(--card);border:1px dashed var(--line);border-radius:8px;line-height:1.5;">
+          No web tools imported yet.<br>Click any button above to load WASM or HTML5 apps.
+        </div>
+      `;
+    } else {
+      h += apps.map((app, i) => `
+        <div class="app-item-card" data-ai="${i}">
+          <div class="app-item-header">
+            <div class="app-item-title">${esc(app.icon || '📦')} ${esc(app.title)}</div>
+            <span class="badge" style="background:#10b981;color:#fff;font-size:9px;padding:1px 5px;">READY</span>
+          </div>
+          <div class="muted small" style="font-size:10px;word-break:break-all;">${esc(app.relPath)}</div>
+          <div class="app-item-actions">
+            <button class="btn small primary" data-act="hub" style="flex:1;" title="Add into Multi-App Hub or Page">+ Add to Hub / Page</button>
+            <button class="btn small ghost" data-act="box" title="Insert as standalone box">📦 Box</button>
+            <button class="btn small ghost" data-act="folder" title="Open files in Windows Explorer">📂</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    h += `</div>
+      <div class="sec-title flex-title">
+        <span>🖼️ Pictures (${images.length})</span>
+        <button class="btn small ghost" id="bOpenAssetDir" style="padding:2px 6px;font-size:10px;">📂 Pictures Folder</button>
+      </div>
+      <div style="margin-bottom:8px;">
+        <button class="btn primary small full" id="bImportImg">+ Add Picture</button>
+      </div>
+    `;
+
+    if (!images.length) {
+      h += `
+        <div class="muted small" style="padding:16px;text-align:center;line-height:1.6;">
+          No pictures saved yet.<br>Click "+ Add Picture" or copy a website with photos.
+        </div>
+      `;
+    } else {
+      h += `<div class="asset-grid">` +
+        images.map((img) => `
+          <div class="asset-card" data-path="${esc(img.path)}">
+            <div class="asset-thumb"><img src="${S.base}${esc(img.path)}" alt=""></div>
+            <div class="asset-name" title="${esc(img.name)}">${esc(img.name)}</div>
+            <div class="asset-size">${esc(img.size)}</div>
+          </div>
+        `).join('') + `</div>`;
+    }
+
+    p.innerHTML = h;
+
+    const handleQuickImport = async (mode) => {
+      const hub = doc && ((S.sel && S.sel.closest && S.sel.closest('.myhtml-app-hub')) || doc.querySelector('.myhtml-app-hub'));
+      if (hub) {
+        await addAppsToHub(hub, mode);
+        renderAssets();
+        return;
+      }
+      let res = null;
+      if (mode === 'bulk') res = await api.importAppBulk(S.dir);
+      else if (mode === 'file') res = await api.importAppFile(S.dir);
+      else if (mode === 'url') {
+        const v = await ask('🌐 Grab Web App from URL', [
+          { label: 'Web App Address (URL)', placeholder: 'https://example.com/tool' },
+          { label: 'App Display Name (optional)', placeholder: 'My Web Tool' }
+        ]);
+        if (!v || !v[0]) return;
+        toast('⏳ Downloading web app…');
+        res = await api.cloneAppUrl({ projectDir: S.dir, url: normUrl(v[0]), customTitle: v[1] || '' });
+      } else {
+        res = await api.importApp(S.dir);
+      }
+      if (res && res.success) {
+        renderAssets();
+        const incoming = res.apps && res.apps.length ? res.apps : [res];
+        if (incoming.length > 1) {
+          // If importing multiple apps and no Hub exists yet, drop a Multi-App Hub and load all of them into it!
+          insertBlock('app-hub');
+          const newHub = doc.querySelector('.myhtml-app-hub');
+          if (newHub) {
+            const combined = [...getHubApps(newHub), ...incoming.map(a => ({ title: a.title, src: a.relPath, icon: a.icon || '📦' }))];
+            setHubApps(newHub, combined, combined.length - 1);
+          }
+          toast(`📚 Created Multi-App Hub with ${incoming.length} imported apps!`);
+        } else {
+          addAppObjectToPageOrHub(incoming[0]);
+        }
+      }
+    };
+
+    const newAppBtn = $('#bImportNewApp');
+    if (newAppBtn) newAppBtn.onclick = () => handleQuickImport('folder');
+    const bulkBtn = $('#bImportBulkApps');
+    if (bulkBtn) bulkBtn.onclick = () => handleQuickImport('bulk');
+    const fileBtn = $('#bImportHtmlFile');
+    if (fileBtn) fileBtn.onclick = () => handleQuickImport('file');
+    const urlBtn = $('#bImportUrlApp');
+    if (urlBtn) urlBtn.onclick = () => handleQuickImport('url');
+
+    $$('.app-item-card', p).forEach((card) => {
+      const app = apps[+card.dataset.ai];
+      $('[data-act="hub"]', card).onclick = () => addAppObjectToPageOrHub(app);
+      $('[data-act="box"]', card).onclick = () => insertImportedApp(app);
+      $('[data-act="folder"]', card).onclick = () => api.openFolder(app.fullDir);
+    });
+
+    const imgBtn = $('#bImportImg');
+    if (imgBtn) {
+      imgBtn.onclick = async () => {
+        const r = await api.importImage(S.dir);
+        if (r) { refreshFontsAndAssets(); toast('Picture added'); }
+      };
+    }
+
+    const dirBtn = $('#bOpenAssetDir');
+    if (dirBtn) dirBtn.onclick = () => api.openFolder(S.dir + '/assets');
+
+    $$('.asset-card', p).forEach((card) => {
+      card.onclick = () => {
+        const path = card.dataset.path;
+        if (S.sel && S.sel.tagName === 'IMG') {
+          S.sel.setAttribute('src', path);
+          commit();
+          renderInspector();
+          toast('Picture replaced');
+        } else {
+          navigator.clipboard.writeText(path);
+          toast('Copied picture link');
+        }
+      };
+    });
+  }
+
+  /* ---------- pages ---------- */
+  function renderPages() {
+    $('#p-pages').innerHTML = S.pages.map((p) => `<div class="row ${p === S.page ? 'on' : ''}" data-p="${esc(p)}">📄 ${esc(p)}${p !== 'index.html' ? '<span class="x" data-del="1" title="Delete">✕</span>' : ''}</div>`).join('') +
+      '<button class="btn full" id="newPage">+ Add New Page</button>';
+    $$('#p-pages .row').forEach((r) => (r.onclick = async (e) => {
+      if (e.target.dataset.del) {
+        if (await api.deletePage(S.dir, r.dataset.p)) {
+          S.pages = (await api.projectInfo(S.dir)).pages;
+          renderPages();
+          if (S.page === r.dataset.p) loadPage(S.pages[0]);
+        }
+        return;
+      }
+      if (r.dataset.p !== S.page) { await autosave(); loadPage(r.dataset.p); }
+    }));
+    $('#newPage').onclick = async () => {
+      const v = await ask('Add a New Page', [{ label: 'Page name (e.g. about or contact)', placeholder: 'about' }]);
+      if (!v || !v[0]) return;
+      try {
+        const html = makePage(v[0], ['nav', 'footer'].map((id) => BLOCKS.find((b) => b.id === id).html).join('\n'));
+        const name = await api.createPage(S.dir, v[0], html);
+        S.pages = (await api.projectInfo(S.dir)).pages;
+        await autosave();
+        await loadPage(name);
+      } catch (e) { toast(cleanErr(e)); }
+    };
+  }
+
+  /* ---------- actions ---------- */
+  function act(a) {
+    const el = S.sel;
+    if (!el || (el === doc.body && a !== 'parent')) return;
+    if (a === 'del') {
+      const nxt = el.nextElementSibling || el.previousElementSibling || el.parentElement;
+      el.remove();
+      S.sel = null;
+      commit();
+      select(nxt === doc.body ? null : nxt);
+    }
+    if (a === 'dup') {
+      const c = el.cloneNode(true);
+      c.classList.remove('__mh-sel');
+      el.insertAdjacentElement('afterend', c);
+      commit();
+      select(c);
+    }
+    if (a === 'up' && el.previousElementSibling) {
+      el.parentElement.insertBefore(el, el.previousElementSibling);
+      commit();
+      el.scrollIntoView({ block: 'center' });
+    }
+    if (a === 'down' && el.nextElementSibling) {
+      el.parentElement.insertBefore(el.nextElementSibling, el);
+      commit();
+      el.scrollIntoView({ block: 'center' });
+    }
+    if (a === 'parent' && el.parentElement && el.parentElement !== doc.documentElement) select(el.parentElement);
+    if (a === 'child' && el.firstElementChild) select(el.firstElementChild);
+    if (a === 'wrap') {
+      const wrapper = doc.createElement('div');
+      wrapper.style.display = 'block';
+      el.parentElement.insertBefore(wrapper, el);
+      wrapper.appendChild(el);
+      commit();
+      select(wrapper);
+      toast('Wrapped in a container box');
+    }
+    if (a === 'edit') startEdit(el);
+  }
+
+  /* ---------- inspector ---------- */
+  const SYSTEM_FONTS = [
+    '',
+    "'Segoe UI', system-ui, sans-serif",
+    "Arial, sans-serif",
+    "'Helvetica Neue', Helvetica, sans-serif",
+    "Georgia, serif",
+    "'Times New Roman', serif",
+    "'Trebuchet MS', sans-serif",
+    "Verdana, sans-serif",
+    "'Cascadia Code', Consolas, monospace",
+    "Impact, sans-serif"
+  ];
+
+  function getFontOptions() {
+    let opts = [];
+    if (S.fonts && S.fonts.length) {
+      opts.push({ group: '⭐ Captured Website Fonts', items: S.fonts.map(f => [`'${f.family}', sans-serif`, f.family]) });
+    }
+    opts.push({
+      group: 'Standard System Fonts',
+      items: SYSTEM_FONTS.map(f => [f, f ? f.split(',')[0].replace(/'/g, '') : '(Default font)'])
+    });
+    return opts;
+  }
+
+  const cs = () => doc.defaultView.getComputedStyle(S.sel);
+  function setStyle(prop, val) {
+    if (!S.sel) return;
+    if (val === '' || val == null) S.sel.style.removeProperty(prop);
+    else S.sel.style.setProperty(prop, val);
+    if (!S.sel.getAttribute('style')) S.sel.removeAttribute('style');
+    commit();
+  }
+
+  function fText(label, prop, ph = '') {
+    return `<div class="f"><label>${label}</label><input type="text" data-style="${prop}" value="${esc(S.sel.style.getPropertyValue(prop))}" placeholder="${esc(ph || cs().getPropertyValue(prop))}"></div>`;
+  }
+  function fColor(label, prop) {
+    const own = S.sel.style.getPropertyValue(prop), hex = rgbToHex(own) || (own && own[0] === '#' ? own : null) || rgbToHex(cs().getPropertyValue(prop)) || '#ffffff';
+    return `<div class="f"><label>${label}</label><input type="color" data-color="${prop}" value="${hex.length === 7 ? hex : '#ffffff'}"><input type="text" data-style="${prop}" value="${esc(own)}" placeholder="${esc(cs().getPropertyValue(prop))}"><button class="clr" data-clear="${prop}" title="Reset">✕</button></div>`;
+  }
+  function fSelect(label, prop, optGroups) {
+    const cur = S.sel.style.getPropertyValue(prop);
+    let optionsHtml = '';
+    for (const grp of optGroups) {
+      optionsHtml += `<optgroup label="${esc(grp.group)}">`;
+      for (const [v, t] of grp.items) {
+        optionsHtml += `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(t)}</option>`;
+      }
+      optionsHtml += `</optgroup>`;
+    }
+    return `<div class="f"><label>${label}</label><select data-style="${prop}">${optionsHtml}</select></div>`;
+  }
+  function fFlatSelect(label, prop, opts) {
+    const cur = S.sel.style.getPropertyValue(prop);
+    return `<div class="f"><label>${label}</label><select data-style="${prop}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
+  }
+
+  function renderInspector() {
+    const p = $('#inspector');
+    if (!doc) return;
+    if (!S.sel || S.sel === doc.body) { pageSettings(p); return; }
+    const el = S.sel, tag = el.tagName, isImg = tag === 'IMG', isLink = tag === 'A', isForm = /^(INPUT|TEXTAREA|BUTTON)$/.test(tag);
+    const friendlyTag = FRIENDLY_NAMES[tag] || el.tagName.toLowerCase();
+    let h = `
+      <div class="ins-head">
+        <b>${friendlyTag}</b>
+        <span class="muted small">${esc(el.id ? '#' + el.id : '')}</span>
+      </div>
+      <div class="tools">
+        <button data-a="parent" title="Select surrounding box">⬆ Parent Box</button>
+        <button data-a="up" title="Move element up">↑ Move Up</button>
+        <button data-a="down" title="Move element down">↓ Move Down</button>
+        <button data-a="dup" title="Duplicate (Ctrl+D)">⧉ Copy</button>
+        <button data-a="edit" title="Edit text (Enter)">✎ Edit Text</button>
+        <button class="danger" data-a="del" title="Delete (Del)">🗑 Delete</button>
+      </div>
+    `;
+
+    const hubContainer = el.closest ? el.closest('.myhtml-app-hub') : null;
+    if (hubContainer) {
+      const apps = getHubApps(hubContainer);
+      const activeIdx = parseInt(hubContainer.getAttribute('data-active-idx') || '0', 10) || 0;
+      const hubTitleEl = hubContainer.querySelector('.hub-title');
+      const hubTitle = hubTitleEl ? hubTitleEl.textContent : 'App Workbench';
+      h += `
+        <div class="sec" style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.28);border-radius:10px;padding:12px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <h4 style="margin:0;color:#10b981;font-size:12px;display:flex;align-items:center;gap:6px;">🧰 Multi-App Hub (1 Screen)</h4>
+            <span style="background:rgba(16,185,129,0.2);color:#10b981;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:6px;">${apps.length} APPS</span>
+          </div>
+          <p class="muted small" style="margin:0 0 8px;">Bung 5, 10, or 30+ apps into one single-screen workbench.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px;">
+            <button class="btn small primary" id="insHubAddFolder" title="Add a folder containing index.html + .wasm/.js">📂 + App Folder</button>
+            <button class="btn small primary" id="insHubAddBulk" title="Pick a parent folder of many apps to import all at once">📚 + Bulk Folder</button>
+            <button class="btn small" id="insHubAddFile" title="Pick one or more .html files">📄 + .html File</button>
+            <button class="btn small" id="insHubAddUrl" title="Clone a live web app URL into the Hub">🌐 + Web URL</button>
+          </div>
+          <div class="f">
+            <label>Hub Name</label>
+            <input type="text" id="insHubTitle" value="${esc(hubTitle)}" placeholder="App Workbench">
+          </div>
+          <div style="margin-top:8px;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--muted);display:flex;justify-content:space-between;align-items:center;">
+            <span>Apps in this Hub (${apps.length})</span>
+            <button class="btn small ghost" id="insHubFullHeight" style="font-size:10px;padding:2px 6px;">⛶ Full Screen Height</button>
+          </div>
+          <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;padding-right:2px;">
+            ${apps.map((a, idx) => `
+              <div style="display:flex;align-items:center;gap:5px;padding:5px 7px;border-radius:6px;background:${idx === activeIdx ? 'rgba(99,102,241,0.16)' : 'rgba(255,255,255,0.03)'};border:1px solid ${idx === activeIdx ? 'rgba(99,102,241,0.4)' : 'var(--border)'};">
+                <button class="btn small ghost" data-hub-select="${idx}" style="padding:2px 5px;flex:1;text-align:left;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;" title="Switch to ${esc(a.title)}">
+                  ${esc(a.icon || '⚡')} ${esc(a.title)}
+                </button>
+                <button class="btn small ghost" data-hub-up="${idx}" title="Move up" style="padding:2px 5px;font-size:10px;" ${idx === 0 ? 'disabled' : ''}>↑</button>
+                <button class="btn small ghost" data-hub-down="${idx}" title="Move down" style="padding:2px 5px;font-size:10px;" ${idx === apps.length - 1 ? 'disabled' : ''}>↓</button>
+                <button class="btn small ghost" data-hub-del="${idx}" title="Remove from Hub" style="padding:2px 5px;font-size:10px;color:#ef4444;">✕</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    const appContainer = el.closest ? el.closest('.myhtml-app-embed') : null;
+    if (appContainer) {
+      const appTitle = appContainer.getAttribute('data-app-title') || (appContainer.querySelector('.myhtml-app-title') ? appContainer.querySelector('.myhtml-app-title').textContent : 'Embedded Web App');
+      const appSrc = appContainer.getAttribute('data-app-src') || '';
+      const vp = appContainer.querySelector('.myhtml-app-viewport');
+      const curH = vp ? parseInt(vp.style.height || '600', 10) : 600;
+      const hdr = appContainer.querySelector('.myhtml-app-header');
+      const hasHdr = !hdr || hdr.style.display !== 'none';
+
+      h += `
+        <div class="sec" style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <h4 style="margin:0;color:#6366f1;font-size:12px;display:flex;align-items:center;gap:6px;">📦 Web App Controls</h4>
+            <span style="background:rgba(16,185,129,0.2);color:#10b981;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:6px;">OFFLINE</span>
+          </div>
+          <div style="margin-bottom:10px;font-size:11.5px;line-height:1.4;">
+            <div style="font-weight:700;color:var(--text);">${esc(appTitle)}</div>
+            <div class="muted small" style="word-break:break-all;">${esc(appSrc || 'No folder chosen yet')}</div>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button class="btn primary" id="insAppPickBtn" style="flex:1;font-size:11px;">📂 App Folder…</button>
+            <button class="btn" id="insAppPickFileBtn" style="flex:1;font-size:11px;">📄 .html File…</button>
+          </div>
+          <div class="f">
+            <label>App Height</label>
+            <input type="range" id="insAppHSlider" min="300" max="1200" step="25" value="${curH}" style="flex:1;">
+            <span id="insAppHVal" style="font-size:11px;font-weight:600;min-width:44px;text-align:right;">${curH}px</span>
+          </div>
+          <div class="f">
+            <label>App Title</label>
+            <input type="text" id="insAppTitleInput" value="${esc(appTitle)}" placeholder="App title">
+          </div>
+          <div class="f">
+            <label>Show Header</label>
+            <input type="checkbox" id="insAppHeaderToggle" ${hasHdr ? 'checked' : ''}>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px;">
+            ${appSrc ? `<button class="btn small" id="insAppOpenBtn" style="flex:1;">↗ Open in Browser</button>` : ''}
+            <button class="btn small ghost" id="insAppDirBtn" style="flex:1;">📂 Apps Folder</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (isImg) {
+      h += `<div class="sec"><h4>Picture Settings</h4>
+        <div class="f"><label>Image link</label><input type="text" data-attr="src" value="${esc(el.getAttribute('src') || '')}"></div>
+        <button class="btn full primary" id="pickImg">📷 Choose Picture File…</button>
+        <div class="f" style="margin-top:6px"><label>Description</label><input type="text" data-attr="alt" value="${esc(el.getAttribute('alt') || '')}" placeholder="For accessibility"></div>
+      </div>`;
+    }
+    if (isLink) {
+      h += `<div class="sec"><h4>Link Settings</h4>
+        <div class="f"><label>Goes to</label><input type="text" data-attr="href" list="pgs" value="${esc(el.getAttribute('href') || '')}" placeholder="https:// or page.html"><datalist id="pgs">${S.pages.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
+        <div class="f"><label>New Tab</label><input type="checkbox" id="newTab" ${el.target === '_blank' ? 'checked' : ''}></div>
+      </div>`;
+    }
+    if (isForm) {
+      h += `<div class="sec"><h4>Input Field</h4><div class="f"><label>Hint text</label><input type="text" data-attr="placeholder" value="${esc(el.getAttribute('placeholder') || '')}"></div></div>`;
+    }
+
+    // Text & Fonts
+    if (!el.querySelector('*') || /^(H[1-6]|P|A|SPAN|BUTTON|LI|LABEL|STRONG|EM|B|I)$/.test(tag)) {
+      h += `<div class="sec"><h4>Text & Fonts</h4>` +
+        fSelect('Font', 'font-family', getFontOptions()) +
+        fText('Size', 'font-size', 'e.g. 18px') +
+        fFlatSelect('Boldness', 'font-weight', [['', '(Normal)'], ['300', 'Light'], ['400', 'Normal'], ['500', 'Medium'], ['600', 'Semi-Bold'], ['700', 'Bold'], ['800', 'Extra Bold']]) +
+        fColor('Text Colour', 'color') +
+        `<div class="f"><label>Align</label><div class="al">${['left', 'center', 'right'].map((a) => `<button data-align="${a}" class="${el.style.textAlign === a ? 'on' : ''}">${{ left: '⇤ Left', center: '↔ Centre', right: '⇥ Right' }[a]}</button>`).join('')}</div></div>` +
+        fText('Line Spacing', 'line-height', 'e.g. 1.5') +
+        '</div>';
+    }
+
+    // Appearance & Colors
+    h += `<div class="sec"><h4>Colors & Look</h4>` +
+      fColor('Background', 'background-color') +
+      fText('Bg Image', 'background-image', 'url(...)') +
+      fText('Round Corners', 'border-radius', 'e.g. 12px or 50%') +
+      fText('Border', 'border', 'e.g. 1px solid #ccc') +
+      fText('Drop Shadow', 'box-shadow', 'e.g. 0 8px 24px rgba(0,0,0,0.1)') +
+      fText('Opacity', 'opacity', '1.0') +
+      '</div>';
+
+    // Layout
+    h += `<div class="sec"><h4>Arrangement (Layout)</h4>` +
+      fFlatSelect('Flow', 'display', [['', '(Default)'], ['block', 'Stacked (Block)'], ['flex', 'Side-by-Side (Row)'], ['grid', 'Grid Columns'], ['none', 'Hidden']]) +
+      fText('Item Gap', 'gap', 'e.g. 16px') +
+      fFlatSelect('Positioning', 'justify-content', [['', '(Default)'], ['flex-start', 'Left / Start'], ['center', 'Centre'], ['space-between', 'Spread Evenly'], ['flex-end', 'Right / End']]) +
+      fFlatSelect('Alignment', 'align-items', [['', '(Default)'], ['flex-start', 'Top'], ['center', 'Middle'], ['flex-end', 'Bottom']]) +
+      '</div>';
+
+    // Size & Spacing
+    h += `<div class="sec"><h4>Size & Spacing</h4>` +
+      fText('Inside space', 'padding', 'e.g. 20px') +
+      fText('Outside space', 'margin', 'e.g. 10px auto') +
+      fText('Width', 'width', 'e.g. 100% or 400px') +
+      fText('Max Width', 'max-width', 'e.g. 800px') +
+      fText('Height', 'height', 'auto') +
+      '</div>';
+
+    p.innerHTML = h;
+    bindInspector(p);
+  }
+
+  function pageSettings(p) {
+    const d = doc, title = d.title || '', desc = (d.querySelector('meta[name=description]') || {}).content || '';
+    const b = d.body, bcs = d.defaultView.getComputedStyle(b);
+    let fontOptsHtml = '';
+    for (const grp of getFontOptions()) {
+      fontOptsHtml += `<optgroup label="${esc(grp.group)}">`;
+      for (const [v, t] of grp.items) fontOptsHtml += `<option value="${esc(v)}">${esc(t)}</option>`;
+      fontOptsHtml += `</optgroup>`;
+    }
+
+    p.innerHTML = `
+      <div class="ins-head"><b>Page Settings</b></div>
+      <p class="muted small">Click any element on the page to change its words, colors, or fonts.</p>
+      <div class="sec"><h4>Page Information</h4>
+        <div class="f"><label>Page Title</label><input type="text" id="pgTitle" value="${esc(title)}"></div>
+        <div class="f"><label>Description</label><input type="text" id="pgDesc" value="${esc(desc)}"></div>
+      </div>
+      <div class="sec"><h4>Whole Page Look</h4>
+        <div class="f"><label>Background</label><input type="color" id="pgBg" value="${rgbToHex(bcs.backgroundColor) || '#ffffff'}"></div>
+        <div class="f"><label>Text Colour</label><input type="color" id="pgFg" value="${rgbToHex(bcs.color) || '#111827'}"></div>
+        <div class="f"><label>Page Font</label><select id="pgFont">${fontOptsHtml}</select></div>
+      </div>
+      <div class="sec"><h4>Custom Styling (Optional)</h4>
+        <div class="f"><textarea id="pgCss" rows="5" class="mono" placeholder="/* CSS styles */">${esc((d.getElementById('__mh_custom') || {}).textContent || '')}</textarea></div>
+        <button class="btn full" id="pgCssApply">Apply Styles</button>
+      </div>
+    `;
+
+    $('#pgTitle').onchange = (e) => { d.title = e.target.value; commit(); };
+    $('#pgDesc').onchange = (e) => {
+      let m = d.querySelector('meta[name=description]');
+      if (!m) { m = d.createElement('meta'); m.name = 'description'; d.head.appendChild(m); }
+      m.content = e.target.value; commit();
+    };
+    $('#pgBg').onchange = (e) => { b.style.backgroundColor = e.target.value; commit(); };
+    $('#pgFg').onchange = (e) => { b.style.color = e.target.value; commit(); };
+    $('#pgFont').onchange = (e) => {
+      if (e.target.value) b.style.fontFamily = e.target.value; else b.style.removeProperty('font-family');
+      commit();
+    };
+    $('#pgCssApply').onclick = () => {
+      let s = d.getElementById('__mh_custom');
+      if (!s) { s = d.createElement('style'); s.id = '__mh_custom'; d.head.appendChild(s); }
+      s.textContent = $('#pgCss').value;
+      commit();
+      toast('Custom styling applied');
+    };
+  }
+
+  function bindInspector(p) {
+    $$('[data-a]', p).forEach((b) => (b.onclick = () => act(b.dataset.a)));
+    $$('[data-style]', p).forEach((i) => (i.onchange = () => {
+      setStyle(i.dataset.style, i.value.trim());
+      const c = $(`[data-color="${i.dataset.style}"]`, p);
+      if (c && rgbToHex(S.sel.style.getPropertyValue(i.dataset.style))) c.value = rgbToHex(S.sel.style.getPropertyValue(i.dataset.style));
+    }));
+    $$('[data-color]', p).forEach((i) => (i.oninput = () => {
+      S.sel.style.setProperty(i.dataset.color, i.value);
+      const t = $(`[data-style="${i.dataset.color}"]`, p);
+      if (t) t.value = i.value;
+    }, i.onchange = () => commit()));
+    $$('[data-clear]', p).forEach((b) => (b.onclick = () => { setStyle(b.dataset.clear, ''); renderInspector(); }));
+    $$('[data-align]', p).forEach((b) => (b.onclick = () => { setStyle('text-align', S.sel.style.textAlign === b.dataset.align ? '' : b.dataset.align); renderInspector(); }));
+    $$('[data-attr]', p).forEach((i) => (i.onchange = () => {
+      if (i.value) S.sel.setAttribute(i.dataset.attr, i.value.trim());
+      else S.sel.removeAttribute(i.dataset.attr);
+      commit();
+      renderLayers();
+    }));
+    const nt = $('#newTab');
+    if (nt) nt.onchange = () => {
+      if (nt.checked) { S.sel.target = '_blank'; S.sel.rel = 'noopener'; }
+      else { S.sel.removeAttribute('target'); S.sel.removeAttribute('rel'); }
+      commit();
+    };
+    const pi = $('#pickImg');
+    if (pi) pi.onclick = async () => {
+      const r = await api.importImage(S.dir);
+      if (r) { S.sel.setAttribute('src', r); S.sel.removeAttribute('srcset'); commit(); renderInspector(); refreshFontsAndAssets(); }
+    };
+
+    const hubContainer = S.sel && S.sel.closest ? S.sel.closest('.myhtml-app-hub') : null;
+    if (hubContainer) {
+      const addFolderBtn = $('#insHubAddFolder', p);
+      if (addFolderBtn) addFolderBtn.onclick = () => addAppsToHub(hubContainer, 'folder');
+      const addBulkBtn = $('#insHubAddBulk', p);
+      if (addBulkBtn) addBulkBtn.onclick = () => addAppsToHub(hubContainer, 'bulk');
+      const addFileBtn = $('#insHubAddFile', p);
+      if (addFileBtn) addFileBtn.onclick = () => addAppsToHub(hubContainer, 'file');
+      const addUrlBtn = $('#insHubAddUrl', p);
+      if (addUrlBtn) addUrlBtn.onclick = async () => {
+        const res = await ask('Add Web App from URL to Hub', [
+          { label: 'Web App Address (URL)', value: '', placeholder: 'https://example.com/tool' },
+        ]);
+        if (!res || !res[0]) return;
+        toast('Downloading web app into Hub…');
+        const r = await api.cloneAppUrl(S.dir, res[0]);
+        if (!r || !r.ok) { alert(r ? r.error : 'Could not clone web app'); return; }
+        const apps = getHubApps(hubContainer);
+        apps.push({
+          id: r.appName,
+          title: r.title,
+          icon: r.hasWasm ? '🎮' : '🌐',
+          cat: r.hasWasm ? 'WASM App' : 'Web App',
+          src: r.relPath,
+          desc: 'Cloned from ' + res[0],
+        });
+        setHubApps(hubContainer, apps, apps.length - 1);
+        await refreshFontsAndAssets();
+        toast(`✓ Added "${r.title}" to Hub!`);
+      };
+
+      const titleInp = $('#insHubTitle', p);
+      if (titleInp) {
+        titleInp.onchange = (e) => {
+          const tEl = hubContainer.querySelector('.hub-title');
+          if (tEl) tEl.textContent = e.target.value.trim() || 'App Workbench';
+          commit();
+        };
+      }
+
+      const fullHBtn = $('#insHubFullHeight', p);
+      if (fullHBtn) {
+        fullHBtn.onclick = () => {
+          hubContainer.style.height = '100vh';
+          hubContainer.style.minHeight = '640px';
+          hubContainer.style.borderRadius = '0';
+          commit();
+          renderInspector();
+          toast('Hub set to Full Screen (100vh)');
+        };
+      }
+
+      $$('[data-hub-select]', p).forEach((b) => {
+        b.onclick = () => {
+          const idx = parseInt(b.dataset.hubSelect, 10);
+          setHubApps(hubContainer, getHubApps(hubContainer), idx);
+        };
+      });
+      $$('[data-hub-up]', p).forEach((b) => {
+        b.onclick = () => {
+          const idx = parseInt(b.dataset.hubUp, 10);
+          const apps = getHubApps(hubContainer);
+          if (idx > 0) {
+            const tmp = apps[idx - 1];
+            apps[idx - 1] = apps[idx];
+            apps[idx] = tmp;
+            setHubApps(hubContainer, apps, idx - 1);
+          }
+        };
+      });
+      $$('[data-hub-down]', p).forEach((b) => {
+        b.onclick = () => {
+          const idx = parseInt(b.dataset.hubDown, 10);
+          const apps = getHubApps(hubContainer);
+          if (idx < apps.length - 1) {
+            const tmp = apps[idx + 1];
+            apps[idx + 1] = apps[idx];
+            apps[idx] = tmp;
+            setHubApps(hubContainer, apps, idx + 1);
+          }
+        };
+      });
+      $$('[data-hub-del]', p).forEach((b) => {
+        b.onclick = () => {
+          const idx = parseInt(b.dataset.hubDel, 10);
+          const apps = getHubApps(hubContainer);
+          apps.splice(idx, 1);
+          setHubApps(hubContainer, apps, Math.max(0, idx - 1));
+        };
+      });
+    }
+
+    const appContainer = S.sel && S.sel.closest ? S.sel.closest('.myhtml-app-embed') : null;
+    if (appContainer) {
+      const pickBtn = $('#insAppPickBtn', p);
+      if (pickBtn) pickBtn.onclick = () => chooseAppForContainer(appContainer, 'folder');
+
+      const pickFileBtn = $('#insAppPickFileBtn', p);
+      if (pickFileBtn) pickFileBtn.onclick = () => chooseAppForContainer(appContainer, 'file');
+
+      const hSlider = $('#insAppHSlider', p);
+      if (hSlider) {
+        hSlider.oninput = (e) => {
+          const v = e.target.value;
+          const vp = appContainer.querySelector('.myhtml-app-viewport');
+          if (vp) vp.style.height = v + 'px';
+          const hVal = $('#insAppHVal', p);
+          if (hVal) hVal.textContent = v + 'px';
+        };
+        hSlider.onchange = () => commit();
+      }
+
+      const titleInp = $('#insAppTitleInput', p);
+      if (titleInp) {
+        titleInp.onchange = (e) => {
+          const v = e.target.value.trim();
+          appContainer.setAttribute('data-app-title', v);
+          const t = appContainer.querySelector('.myhtml-app-title');
+          if (t) t.textContent = v;
+          commit();
+        };
+      }
+
+      const hdrToggle = $('#insAppHeaderToggle', p);
+      if (hdrToggle) {
+        hdrToggle.onchange = (e) => {
+          const hdr = appContainer.querySelector('.myhtml-app-header');
+          if (hdr) hdr.style.display = e.target.checked ? 'flex' : 'none';
+          commit();
+        };
+      }
+
+      const openBtn = $('#insAppOpenBtn', p);
+      if (openBtn) {
+        const src = appContainer.getAttribute('data-app-src');
+        openBtn.onclick = () => {
+          if (src) api.openInBrowser(S.dir, src);
+        };
+      }
+
+      const dirBtn = $('#insAppDirBtn', p);
+      if (dirBtn) {
+        dirBtn.onclick = () => api.openFolder(S.dir + '/assets/apps');
+      }
+    }
+  }
+
+  /* ---------- code tab ---------- */
+  function showElHtml() {
+    const t = $('#elHtml');
+    if (!t) return;
+    t.value = S.sel && S.sel !== doc.body
+      ? S.sel.outerHTML.replace(/\s*class="__mh-[^"]*"/g, '').replace(/__mh-[a-z-]+/g, '').trim()
+      : '';
+    t.disabled = !S.sel;
+  }
+  $('#elHtmlApply').onclick = () => {
+    if (!S.sel || S.sel === doc.body) return;
+    const tpl = doc.createElement('template');
+    tpl.innerHTML = $('#elHtml').value.trim();
+    const n = tpl.content.firstElementChild;
+    if (!n) return;
+    S.sel.replaceWith(n);
+    S.sel = null;
+    commit();
+    select(n);
+    toast('Element updated');
+  };
+  $('#copyElHtml').onclick = () => {
+    const t = $('#elHtml').value;
+    if (t) { navigator.clipboard.writeText(t); toast('HTML copied'); }
+  };
+
+  /* ---------- metrics tab ---------- */
+  function renderComputed() {
+    const p = $('#computedStyles');
+    if (!p) return;
+    if (!S.sel || !doc) {
+      p.innerHTML = '<div class="muted small" style="padding:10px;">Select an element to view metrics.</div>';
+      return;
+    }
+    const c = doc.defaultView.getComputedStyle(S.sel);
+    const rect = S.sel.getBoundingClientRect();
+    const props = [
+      ['Size on Screen', `${Math.round(rect.width)} × ${Math.round(rect.height)} px`],
+      ['Arrangement', c.display],
+      ['Font Family', c.fontFamily.split(',')[0].replace(/'/g, '')],
+      ['Font Size', c.fontSize],
+      ['Boldness', c.fontWeight],
+      ['Line Spacing', c.lineHeight],
+      ['Text Color', rgbToHex(c.color) || c.color],
+      ['Background', rgbToHex(c.backgroundColor) || c.backgroundColor],
+      ['Inside Space (Padding)', `${c.paddingTop} ${c.paddingRight} ${c.paddingBottom} ${c.paddingLeft}`],
+      ['Outside Space (Margin)', `${c.marginTop} ${c.marginRight} ${c.marginBottom} ${c.marginLeft}`],
+      ['Corner Roundness', c.borderRadius]
+    ];
+
+    p.innerHTML = `<table class="computed-table"><tbody>` +
+      props.map(([k, v]) => `<tr><td>${esc(k)}</td><td><strong>${esc(v)}</strong></td></tr>`).join('') +
+      `</tbody></table>`;
+  }
+
+  /* ---------- generic ask dialog ---------- */
+  function ask(title, fields) {
+    return new Promise((res) => {
+      $('#askTitle').textContent = title;
+      $('#askBody').innerHTML = fields.map((f, i) => `<div class="f"><label>${esc(f.label)}<input type="text" data-i="${i}" value="${esc(f.value || '')}" placeholder="${esc(f.placeholder || '')}"></label></div>`).join('');
+      $('#askModal').hidden = false;
+      const first = $('#askBody input'); first.focus(); first.select();
+      const done = (ok) => {
+        $('#askModal').hidden = true;
+        $('#askOk').onclick = $('#askCancel').onclick = null;
+        res(ok ? $$('#askBody input').map((i) => i.value.trim()) : null);
+      };
+      $('#askOk').onclick = () => done(true);
+      $('#askCancel').onclick = () => done(false);
+      $('#askBody').onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); };
+    });
+  }
+
+  /* ---------- publish (Netlify) ---------- */
+  let pub = { info: null, mode: 'ready' };
+  async function openPublish() {
+    if (!S.dir) return;
+    await autosave();
+    pub.info = await api.publishInfo(S.dir);
+    pub.mode = pub.info.hasToken ? 'ready' : 'connect';
+    $('#pubModal').hidden = false;
+    renderPublish();
+  }
+  function renderPublish(result) {
+    const body = $('#pubBody'), go = $('#pubGo'), i = pub.info;
+    $('#pubErr').textContent = ''; $('#pubLog').hidden = true; $('#pubLog').textContent = '';
+    go.hidden = false; go.disabled = false;
+    if (pub.mode === 'connect') {
+      body.innerHTML = `<p class="muted small">Put your website online on <b>Netlify</b> for free with one click. One-time setup:</p>
+        <ol class="steps small"><li>Create a free account at Netlify.</li><li>Click <b>Get Token</b> below, press <b>New access token</b>, and copy it.</li><li>Paste it here.</li></ol>
+        <button class="btn" id="pubGet">🔑 Get Token (opens Netlify)</button>
+        <label>Paste token<input id="pubToken" type="password" placeholder="Netlify access token" spellcheck="false"></label>`;
+      go.textContent = 'Connect';
+      $('#pubGet').onclick = () => api.openExternal('https://app.netlify.com/user/applications#personal-access-tokens');
+    } else if (pub.mode === 'done') {
+      body.innerHTML = `<p>🎉 <b>Your website is live online!</b></p>
+        <div class="liveurl">${esc(result.url)}</div>
+        <div class="tools"><button class="btn" id="pubOpen">🌍 Open Website</button><button class="btn" id="pubCopy">📋 Copy Link</button></div>`;
+      go.hidden = true;
+      $('#pubOpen').onclick = () => api.openExternal(result.url);
+      $('#pubCopy').onclick = () => { navigator.clipboard.writeText(result.url); toast('Link copied'); };
+    } else {
+      body.innerHTML = i.url
+        ? `<p class="muted small">This site is already live online. Publishing will update it.</p><div class="liveurl">${esc(i.url)}</div>`
+        : `<p class="muted small">Choose an address for your website (optional). Leave blank for auto-generated name.</p>
+           <label>Website address<div class="path"><input id="pubName" type="text" placeholder="my-awesome-site" spellcheck="false"><span class="suffix">.netlify.app</span></div></label>`;
+      body.innerHTML += '<p class="muted small" style="margin-top:12px;"><a href="#" id="pubForget">Disconnect from Netlify</a></p>';
+      go.textContent = i.url ? 'Publish Update' : 'Put Online Now';
+      $('#pubForget').onclick = async (e) => { e.preventDefault(); await api.publishForget(); pub.mode = 'connect'; renderPublish(); };
+    }
+  }
+  $('#bPublish').onclick = openPublish;
+  $('#pubClose').onclick = () => ($('#pubModal').hidden = true);
+  api.onPublishProgress((m) => { const l = $('#pubLog'); l.hidden = false; l.textContent += m + '\n'; l.scrollTop = l.scrollHeight; });
+  $('#pubGo').onclick = async () => {
+    const go = $('#pubGo'), err = $('#pubErr'); err.textContent = ''; go.disabled = true;
+    try {
+      if (pub.mode === 'connect') {
+        go.textContent = 'Checking…';
+        await api.publishSetToken($('#pubToken').value);
+        pub.info = await api.publishInfo(S.dir); pub.mode = 'ready'; renderPublish();
+      } else {
+        go.textContent = 'Publishing…';
+        const nameEl = $('#pubName');
+        const r = await api.publishRun(S.dir, { name: nameEl ? nameEl.value.trim() : '' });
+        pub.mode = 'done'; renderPublish(r);
+      }
+    } catch (e) {
+      err.textContent = cleanErr(e); go.disabled = false;
+      go.textContent = pub.mode === 'connect' ? 'Connect' : 'Put Online Now';
+    }
+  };
+
+  /* ---------- Community Templates Hub & Fresh Website Generator ---------- */
+  let ctCatalog = null;
+  let lastRollMeta = null;
+  const ctState = {
+    tab: 'curated',
+    curatedCat: 'All',
+    curatedSearch: '',
+    neoSort: 'special_sauce',
+    neoTag: '',
+    ghFilter: 'trending',
+    ghQuery: '',
+    remixArch: '',
+    remixFont: '',
+    remixPal: ''
+  };
+
+  async function ensureCatalog() {
+    if (!ctCatalog) {
+      ctCatalog = await api.getTemplateCatalog();
+    }
+    return ctCatalog;
+  }
+
+  async function rollFreshSite(opts = {}) {
+    await autosave();
+    const res = await api.rollFreshTemplate(opts);
+    if (!res) return;
+    lastRollMeta = res.meta;
+    await enter(res);
+    const bar = $('#remixBar');
+    if (bar && res.meta) {
+      bar.hidden = false;
+      $('#remixBadge').textContent = res.meta.badge || 'FRESH TEMPLATE';
+      $('#remixTitle').textContent = res.meta.archetypeName || 'Surprise Studio';
+      $('#remixMeta').textContent = `· Fonts: ${res.meta.fontPairName} · Palette: ${res.meta.paletteName}`;
+    }
+    toast(`🎲 Rolled: ${res.meta.archetypeName} (${res.meta.fontPairName})`);
+  }
+
+  async function cloneCommunitySite(item) {
+    if (!item || !item.url) return;
+    const statusEl = $('#ctStatusText');
+    if (statusEl) statusEl.textContent = `⏳ Downloading "${item.title}" (${item.url}) — grabbing HTML, CSS, images & fonts…`;
+    toast(`⏳ Cloning "${item.title}" from ${item.source || 'web'}…`);
+    try {
+      await autosave();
+      const res = await api.cloneCommunityTemplate({
+        url: item.url,
+        title: item.title,
+        slug: item.slug || item.id
+      });
+      if (res) {
+        $('#communityModal').hidden = true;
+        const bar = $('#remixBar');
+        if (bar) {
+          bar.hidden = false;
+          $('#remixBadge').textContent = (item.source || 'COMMUNITY').toUpperCase();
+          $('#remixTitle').textContent = item.title;
+          $('#remixMeta').textContent = `· Cloned from ${item.url}`;
+        }
+        await enter(res);
+        toast(`✓ Opened "${item.title}" (${S.fonts.length} fonts ready in Aa Fonts!)`);
+      }
+    } catch (e) {
+      const msg = cleanErr(e);
+      if (statusEl) statusEl.textContent = `⚠ Error: ${msg}`;
+      alert(`Could not clone ${item.url}:\n${msg}`);
+    }
+  }
+
+  async function rollRandomLiveTemplate() {
+    const cat = await ensureCatalog();
+    if (!cat || !cat.curated || !cat.curated.length) return;
+    const picked = cat.curated[Math.floor(Math.random() * cat.curated.length)];
+    await cloneCommunitySite(picked);
+  }
+
+  // Bind Topbar, Welcome & Remix Bar buttons
+  if ($('#bRollSite')) $('#bRollSite').onclick = () => rollFreshSite();
+  if ($('#wRollFresh')) $('#wRollFresh').onclick = () => rollFreshSite();
+  if ($('#bCommunity')) $('#bCommunity').onclick = () => openCommunityHub();
+  if ($('#wOpenCommunity')) $('#wOpenCommunity').onclick = () => openCommunityHub();
+
+  if ($('#remixRollBtn')) $('#remixRollBtn').onclick = () => rollFreshSite();
+  if ($('#remixArchBtn')) $('#remixArchBtn').onclick = async () => {
+    const cat = await ensureCatalog();
+    if (!cat || !cat.archetypes.length) return;
+    const curIdx = cat.archetypes.findIndex((a) => a.id === (lastRollMeta && lastRollMeta.archetypeId));
+    const next = cat.archetypes[(curIdx + 1) % cat.archetypes.length];
+    await rollFreshSite({
+      archetypeId: next.id,
+      paletteId: lastRollMeta && lastRollMeta.paletteId,
+      fontPairId: lastRollMeta && lastRollMeta.fontPairId
+    });
+  };
+  if ($('#remixFontBtn')) $('#remixFontBtn').onclick = async () => {
+    const cat = await ensureCatalog();
+    if (!cat || !cat.fonts.length) return;
+    const curIdx = cat.fonts.findIndex((f) => f.id === (lastRollMeta && lastRollMeta.fontPairId));
+    const next = cat.fonts[(curIdx + 1) % cat.fonts.length];
+    await rollFreshSite({
+      archetypeId: lastRollMeta && lastRollMeta.archetypeId,
+      paletteId: lastRollMeta && lastRollMeta.paletteId,
+      fontPairId: next.id
+    });
+  };
+  if ($('#remixPalBtn')) $('#remixPalBtn').onclick = async () => {
+    const cat = await ensureCatalog();
+    if (!cat || !cat.palettes.length) return;
+    const curIdx = cat.palettes.findIndex((p) => p.id === (lastRollMeta && lastRollMeta.paletteId));
+    const next = cat.palettes[(curIdx + 1) % cat.palettes.length];
+    await rollFreshSite({
+      archetypeId: lastRollMeta && lastRollMeta.archetypeId,
+      paletteId: next.id,
+      fontPairId: lastRollMeta && lastRollMeta.fontPairId
+    });
+  };
+  if ($('#remixLiveWebBtn')) $('#remixLiveWebBtn').onclick = () => rollRandomLiveTemplate();
+  if ($('#remixHubBtn')) $('#remixHubBtn').onclick = () => openCommunityHub();
+  if ($('#remixCloseBtn')) $('#remixCloseBtn').onclick = () => ($('#remixBar').hidden = true);
+
+  async function openCommunityHub(initialTab) {
+    await ensureCatalog();
+    if (initialTab) ctState.tab = initialTab;
+    $('#communityModal').hidden = false;
+    updateGhTokenButton();
+    renderCommunityHub();
+  }
+
+  function updateGhTokenButton() {
+    const btn = $('#ctGhTokenBtn');
+    if (!btn || !ctCatalog) return;
+    btn.textContent = ctCatalog.hasGithubToken ? '🔑 GitHub API: Connected ✓' : '🔑 GitHub API Key (Optional)';
+  }
+
+  if ($('#ctCloseBtn')) $('#ctCloseBtn').onclick = () => ($('#communityModal').hidden = true);
+  if ($('#ctRandomLiveBtn')) $('#ctRandomLiveBtn').onclick = () => rollRandomLiveTemplate();
+  if ($('#ctGhTokenBtn')) {
+    $('#ctGhTokenBtn').onclick = async () => {
+      await ensureCatalog();
+      const res = await ask('Connect GitHub Personal Access Token (Optional)', [
+        {
+          label: 'Paste a free GitHub Token (unlocks 5,000 community searches/hr — leave blank to disconnect)',
+          value: '',
+          placeholder: 'ghp_... or github_pat_...'
+        }
+      ]);
+      if (res === null) return;
+      const r = await api.setGithubToken(res[0]);
+      ctCatalog.hasGithubToken = r.hasGithubToken;
+      updateGhTokenButton();
+      toast(r.hasGithubToken ? '✓ GitHub API Token saved!' : 'GitHub API Token cleared');
+      if (ctState.tab === 'github') renderCommunityHub();
+    };
+  }
+
+  $$('#ctTabs .ct-tab').forEach((b) => {
+    b.onclick = () => {
+      ctState.tab = b.dataset.ctTab;
+      $$('#ctTabs .ct-tab').forEach((x) => x.classList.toggle('on', x === b));
+      renderCommunityHub();
+    };
+  });
+
+  function renderTemplateCards(items, bodyEl) {
+    if (!items || !items.length) {
+      bodyEl.innerHTML = `<div style="padding:40px;text-align:center;" class="muted">No templates matched that filter. Try another category or search term!</div>`;
+      return;
+    }
+    bodyEl.innerHTML = `<div class="ct-grid">` + items.map((item, idx) => `
+      <div class="ct-card">
+        <div class="ct-thumb">
+          <img src="${esc(item.thumb)}" alt="${esc(item.title)}" loading="lazy" onerror="this.style.display='none'">
+          <span class="ct-source-badge">${esc(item.source || 'Community')}</span>
+          <span class="ct-cat-badge">${esc(item.cat || 'HTML5')}</span>
+        </div>
+        <div class="ct-card-info">
+          <div>
+            <div class="ct-card-title">
+              <span>${esc(item.title)}</span>
+              ${item.stars ? `<span class="badge">★ ${item.stars}</span>` : item.views ? `<span class="badge">👁 ${esc(item.views)}</span>` : ''}
+            </div>
+            <div class="ct-card-desc" style="margin-top:4px;">${esc(item.desc || '')}</div>
+          </div>
+          <div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+              ${(item.tags || []).slice(0, 4).map((t) => `<span style="font-size:9.5px;padding:1px 5px;border-radius:4px;background:var(--card);border:1px solid var(--line);color:var(--muted);">#${esc(t)}</span>`).join('')}
+            </div>
+            <div class="ct-card-actions">
+              <button class="btn primary" data-ct-clone="${idx}" style="flex:1;justify-content:center;">⚡ Clone &amp; Edit</button>
+              <button class="btn" data-ct-preview="${idx}" title="Open live site in browser">👁 Preview</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join('') + `</div>`;
+
+    $$('[data-ct-clone]', bodyEl).forEach((btn) => {
+      btn.onclick = () => {
+        const item = items[parseInt(btn.dataset.ctClone, 10)];
+        cloneCommunitySite(item);
+      };
+    });
+    $$('[data-ct-preview]', bodyEl).forEach((btn) => {
+      btn.onclick = () => {
+        const item = items[parseInt(btn.dataset.ctPreview, 10)];
+        if (item && item.url) api.openExternal(item.url);
+      };
+    });
+  }
+
+  async function renderCommunityHub() {
+    const cat = await ensureCatalog();
+    const pillsEl = $('#ctPills');
+    const searchWrap = $('#ctSearchWrap');
+    const searchInp = $('#ctSearchInput');
+    const searchBtn = $('#ctSearchBtn');
+    const bodyEl = $('#ctBody');
+    const statusEl = $('#ctStatusText');
+
+    $$('#ctTabs .ct-tab').forEach((x) => x.classList.toggle('on', x.dataset.ctTab === ctState.tab));
+
+    if (ctState.tab === 'curated') {
+      searchWrap.hidden = false;
+      searchInp.placeholder = 'Filter 66 free templates (e.g. dark, blog, grid, shop)…';
+      searchInp.value = ctState.curatedSearch;
+
+      const cats = ['All', 'Dark & Sci-Fi', 'Portfolio & Zine', 'Blog & Editorial', 'Minimal & One-Page', 'Small Business', 'Dashboard & Shop', 'HTML5 UP', 'StartBootstrap'];
+      pillsEl.innerHTML = cats.map((c) => `<button class="ct-pill ${ctState.curatedCat === c ? 'on' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
+      $$('.ct-pill', pillsEl).forEach((b) => {
+        b.onclick = () => { ctState.curatedCat = b.dataset.c; renderCommunityHub(); };
+      });
+
+      const doFilter = () => {
+        ctState.curatedSearch = searchInp.value.trim().toLowerCase();
+        const filtered = (cat.curated || []).filter((item) => {
+          if (ctState.curatedCat === 'HTML5 UP' && item.source !== 'HTML5 UP') return false;
+          if (ctState.curatedCat === 'StartBootstrap' && item.source !== 'StartBootstrap') return false;
+          if (ctState.curatedCat !== 'All' && ctState.curatedCat !== 'HTML5 UP' && ctState.curatedCat !== 'StartBootstrap' && item.cat !== ctState.curatedCat) return false;
+          if (ctState.curatedSearch) {
+            const hay = `${item.title} ${item.desc} ${item.cat} ${item.source} ${(item.tags || []).join(' ')}`.toLowerCase();
+            if (!hay.includes(ctState.curatedSearch)) return false;
+          }
+          return true;
+        });
+        statusEl.textContent = `Showing ${filtered.length} verified free HTML5 templates — click "⚡ Clone & Edit" to open any site in MyHTML`;
+        renderTemplateCards(filtered, bodyEl);
+      };
+
+      searchBtn.onclick = doFilter;
+      searchInp.oninput = doFilter;
+      searchInp.onkeydown = (e) => { if (e.key === 'Enter') doFilter(); };
+      doFilter();
+    } else if (ctState.tab === 'neocities') {
+      searchWrap.hidden = false;
+      searchInp.placeholder = 'Type any Neocities tag (e.g. retro, games, cyberpunk, music, pixel, zine)…';
+      searchInp.value = ctState.neoTag;
+
+      const neoPills = [
+        { k: 'sort:special_sauce', label: '✨ Special Sauce' },
+        { k: 'sort:random', label: '🎲 Random Indie Sites!' },
+        { k: 'sort:views', label: '🔥 Most Viewed' },
+        { k: 'sort:last_updated', label: '🆕 Recently Updated' },
+        { k: 'tag:retro', label: '#retro' },
+        { k: 'tag:games', label: '#games' },
+        { k: 'tag:computers', label: '#computers' },
+        { k: 'tag:cyberpunk', label: '#cyberpunk' },
+        { k: 'tag:music', label: '#music' },
+        { k: 'tag:pixel', label: '#pixel' },
+        { k: 'tag:art', label: '#art' },
+        { k: 'tag:zine', label: '#zine' },
+        { k: 'tag:shrine', label: '#shrine' }
+      ];
+      pillsEl.innerHTML = neoPills.map((p) => {
+        const isOn = p.k.startsWith('sort:') ? (!ctState.neoTag && ctState.neoSort === p.k.slice(5)) : (ctState.neoTag === p.k.slice(4));
+        return `<button class="ct-pill ${isOn ? 'on' : ''}" data-np="${esc(p.k)}">${esc(p.label)}</button>`;
+      }).join('');
+
+      const loadNeo = async () => {
+        bodyEl.innerHTML = `<div style="padding:40px;text-align:center;" class="muted">📡 Fetching live handmade community websites from Neocities.org…</div>`;
+        statusEl.textContent = `Connecting to Neocities Indie Web directory…`;
+        try {
+          const r = await api.fetchNeocities({ sort: ctState.neoSort, tag: ctState.neoTag });
+          statusEl.textContent = `Loaded ${r.sites.length} live indie websites from Neocities — click "⚡ Clone & Edit" to inspect their HTML bones & fonts!`;
+          renderTemplateCards(r.sites, bodyEl);
+        } catch (e) {
+          bodyEl.innerHTML = `<div style="padding:40px;text-align:center;color:#f87171;">Could not load Neocities directory: ${esc(cleanErr(e))}</div>`;
+        }
+      };
+
+      $$('.ct-pill', pillsEl).forEach((b) => {
+        b.onclick = () => {
+          const v = b.dataset.np;
+          if (v.startsWith('sort:')) {
+            ctState.neoSort = v.slice(5);
+            ctState.neoTag = '';
+            searchInp.value = '';
+          } else {
+            ctState.neoTag = v.slice(4);
+            searchInp.value = ctState.neoTag;
+          }
+          renderCommunityHub();
+        };
+      });
+
+      searchInp.oninput = null;
+      searchBtn.onclick = () => { ctState.neoTag = searchInp.value.trim(); renderCommunityHub(); };
+      searchInp.onkeydown = (e) => { if (e.key === 'Enter') { ctState.neoTag = searchInp.value.trim(); renderCommunityHub(); } };
+      await loadNeo();
+    } else if (ctState.tab === 'github') {
+      searchWrap.hidden = false;
+      searchInp.placeholder = 'Search GitHub HTML websites (e.g. brutalist, dashboard, calculator, blog)…';
+      searchInp.value = ctState.ghQuery;
+
+      const ghPills = [
+        { k: 'trending', label: '🔥 Trending HTML Templates' },
+        { k: 'portfolio', label: '🎨 Portfolios & Personal' },
+        { k: 'retro', label: '🕹️ Retro & Brutalist' },
+        { k: 'tools', label: '🛠️ Calculators & Web Tools' },
+        { k: 'games', label: '🎮 Browser Games' },
+        { k: 'landing', label: '🚀 Landing Pages' }
+      ];
+      pillsEl.innerHTML = ghPills.map((p) => `<button class="ct-pill ${!ctState.ghQuery && ctState.ghFilter === p.k ? 'on' : ''}" data-gf="${esc(p.k)}">${esc(p.label)}</button>`).join('');
+
+      const loadGh = async () => {
+        bodyEl.innerHTML = `<div style="padding:40px;text-align:center;" class="muted">🐙 Searching GitHub public repositories with live GitHub Pages demos…</div>`;
+        statusEl.textContent = `Querying GitHub Community API…`;
+        try {
+          const r = await api.searchGithubTemplates({ query: ctState.ghQuery, filter: ctState.ghFilter });
+          statusEl.textContent = `Found ${r.total.toLocaleString()} community repositories on GitHub — showing top ${r.sites.length} with live pages`;
+          renderTemplateCards(r.sites, bodyEl);
+        } catch (e) {
+          bodyEl.innerHTML = `<div style="padding:40px;text-align:center;color:#f87171;">${esc(cleanErr(e))}<br><br><button class="btn" onclick="document.getElementById('ctGhTokenBtn').click()">🔑 Connect Free GitHub Token (Optional)</button></div>`;
+        }
+      };
+
+      $$('.ct-pill', pillsEl).forEach((b) => {
+        b.onclick = () => {
+          ctState.ghFilter = b.dataset.gf;
+          ctState.ghQuery = '';
+          searchInp.value = '';
+          renderCommunityHub();
+        };
+      });
+
+      searchInp.oninput = null;
+      searchBtn.onclick = () => { ctState.ghQuery = searchInp.value.trim(); renderCommunityHub(); };
+      searchInp.onkeydown = (e) => { if (e.key === 'Enter') { ctState.ghQuery = searchInp.value.trim(); renderCommunityHub(); } };
+      await loadGh();
+    } else if (ctState.tab === 'remix') {
+      searchWrap.hidden = true;
+      pillsEl.innerHTML = `<span class="muted small">Mix &amp; match any compact layout structure, Google Font pairing, and color theme — or roll a random combination!</span>`;
+
+      const archs = cat.archetypes || [];
+      const fonts = cat.fonts || [];
+      const pals = cat.palettes || [];
+
+      if (!ctState.remixArch && archs.length) ctState.remixArch = archs[0].id;
+      if (!ctState.remixFont && fonts.length) ctState.remixFont = fonts[0].id;
+      if (!ctState.remixPal && pals.length) ctState.remixPal = pals[0].id;
+
+      bodyEl.innerHTML = `
+        <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px;">
+          <div style="background:linear-gradient(135deg, rgba(99,102,241,0.16), rgba(16,185,129,0.14));border:1px solid rgba(99,102,241,0.35);border-radius:12px;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+            <div>
+              <h3 style="margin:0 0 4px;font-size:16px;">🎲 Instant Procedural Website Studio</h3>
+              <p class="muted small" style="margin:0;">Generates compact, button-rich websites with real Google Fonts and clean HTML boxes ready to inspect.</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn juice" id="ctSurpriseRollBtn" style="padding:8px 16px;font-size:13px;">🎲 Roll Total Surprise Site</button>
+              <button class="btn primary" id="ctCustomBuildBtn" style="padding:8px 16px;font-size:13px;">⚡ Open Selected Combination</button>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(250px, 1fr));gap:14px;">
+            <div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;">
+              <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:var(--accent);">1. Choose Website Structure (${archs.length})</div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                ${archs.map((a) => `
+                  <button class="btn" data-rm-arch="${esc(a.id)}" style="justify-content:space-between;text-align:left;padding:7px 10px;${ctState.remixArch === a.id ? 'border-color:var(--accent);background:var(--hover);' : ''}">
+                    <span>${esc(a.name)}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+
+            <div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;">
+              <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:var(--accent);">2. Choose Google Font Pairing (${fonts.length})</div>
+              <div style="display:flex;flex-direction:column;gap:5px;max-height:310px;overflow-y:auto;padding-right:4px;">
+                ${fonts.map((f) => `
+                  <button class="btn" data-rm-font="${esc(f.id)}" style="justify-content:space-between;text-align:left;padding:6px 10px;${ctState.remixFont === f.id ? 'border-color:var(--accent);background:var(--hover);' : ''}">
+                    <span>🔤 ${esc(f.name)}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+
+            <div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;">
+              <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:var(--accent);">3. Choose Color Palette (${pals.length})</div>
+              <div style="display:flex;flex-direction:column;gap:5px;max-height:310px;overflow-y:auto;padding-right:4px;">
+                ${pals.map((p) => `
+                  <button class="btn" data-rm-pal="${esc(p.id)}" style="justify-content:flex-start;gap:8px;text-align:left;padding:6px 10px;${ctState.remixPal === p.id ? 'border-color:var(--accent);background:var(--hover);' : ''}">
+                    <span style="display:inline-flex;gap:2px;shrink:0;">
+                      <span style="width:12px;height:12px;border-radius:3px;background:${p.bg};border:1px solid #555;"></span>
+                      <span style="width:12px;height:12px;border-radius:3px;background:${p.acc};"></span>
+                    </span>
+                    <span style="overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      $$('[data-rm-arch]', bodyEl).forEach((b) => (b.onclick = () => { ctState.remixArch = b.dataset.rmArch; renderCommunityHub(); }));
+      $$('[data-rm-font]', bodyEl).forEach((b) => (b.onclick = () => { ctState.remixFont = b.dataset.rmFont; renderCommunityHub(); }));
+      $$('[data-rm-pal]', bodyEl).forEach((b) => (b.onclick = () => { ctState.remixPal = b.dataset.rmPal; renderCommunityHub(); }));
+
+      $('#ctSurpriseRollBtn', bodyEl).onclick = async () => {
+        $('#communityModal').hidden = true;
+        await rollFreshSite();
+      };
+      $('#ctCustomBuildBtn', bodyEl).onclick = async () => {
+        $('#communityModal').hidden = true;
+        await rollFreshSite({
+          archetypeId: ctState.remixArch,
+          fontPairId: ctState.remixFont,
+          paletteId: ctState.remixPal
+        });
+      };
+    }
+  }
+
+  /* ---------- start app ---------- */
+  initWelcome();
+  window.addEventListener('beforeunload', () => { if (S.dirty && doc && !S.live) api.writePage(S.dir, S.page, serialize()); });
+})();

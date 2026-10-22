@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MyHTML</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Welcome -->
+<div id="welcome">
+  <div class="welcome-card">
+    <div class="corner">
+      <button class="icon themeBtn" title="Dark / light mode">🌓</button>
+      <button class="icon fsBtn" title="Full screen (F11)">⛶</button>
+    </div>
+    <div class="logo big"><img src="icon.png" alt=""> MyHTML</div>
+    <p class="tag">Build web pages & copy any website from the web. No coding required!</p>
+
+    <!-- Direct Quick Clone -->
+    <div class="clone-box">
+      <label class="clone-label">Want to copy and study a website? Paste its web address here:</label>
+      <div class="clone-bar">
+        <input id="wUrl" type="text" placeholder="e.g. apple.com or https://example.com" spellcheck="false">
+        <button class="btn primary" id="wGoClone">🌐 Copy Website</button>
+      </div>
+    </div>
+
+    <!-- Community Templates & Instant Roll Bar -->
+    <div class="clone-box" style="background:linear-gradient(135deg, rgba(99,102,241,0.14), rgba(16,185,129,0.12));border-color:rgba(99,102,241,0.35);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;font-size:13px;color:var(--text);">🎲 Fresh Website Generator &amp; Community Template Hub</div>
+          <div class="muted small">Explore 66+ free HTML5 templates, live Neocities indie sites, 10,000+ GitHub templates, or roll a unique new layout!</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn juice" id="wRollFresh">🎲 Roll Surprise Site</button>
+          <button class="btn primary" id="wOpenCommunity">🌍 Community Templates (1,000+)</button>
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--muted);cursor:pointer;">
+        <input type="checkbox" id="wAutoRollStartup">
+        <span>🚀 Open MyHTML straight into a brand-new website template every time the app starts</span>
+      </label>
+    </div>
+
+    <!-- Quick Starters -->
+    <div class="sec-title">Start with a Clean Template</div>
+    <div id="tplGrid" class="tpl-grid"></div>
+
+    <!-- Recent Sites -->
+    <div class="sec-title flex-title">
+      <span>Your Saved Websites</span>
+      <button class="btn ghost small" id="wOpen">📂 Open Folder</button>
+    </div>
+    <div id="recentGrid" class="recent-grid">
+      <div class="muted small" style="padding:10px;">Scanning saved websites…</div>
+    </div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="logo"><img src="icon.png" alt=""> MyHTML</div>
+    <div class="group">
+      <button class="btn ghost" id="bHome" title="Start page">🏠</button>
+      <button class="btn ghost" id="bOpen" title="Open website folder">Open</button>
+      <button class="btn ghost" id="bClone" title="Copy another website from the web">Copy Site</button>
+      <button class="btn juice" id="bRollSite" title="Roll a brand-new surprise website template right now!">🎲 Roll New Site</button>
+      <button class="btn primary" id="bCommunity" title="Browse 1,000+ free community website templates (HTML5 UP, StartBootstrap, Neocities, GitHub)">🌍 Templates</button>
+      <button class="btn" id="bSave" title="Save changes (Ctrl+S)">💾 Save</button>
+    </div>
+    <div class="group">
+      <button class="icon" id="bUndo" title="Undo (Ctrl+Z)">↶</button>
+      <button class="icon" id="bRedo" title="Redo (Ctrl+Y)">↷</button>
+    </div>
+    <div class="group seg" id="devices">
+      <button data-d="desktop" class="on" title="Desktop view">🖥</button>
+      <button data-d="tablet" title="Tablet view">📱︎</button>
+      <button data-d="mobile" title="Phone view">📱</button>
+    </div>
+    <div class="group">
+      <button class="btn pill" id="bBones" title="Highlight layout boxes and containers (Ctrl+B)">🩻 Show Boxes</button>
+      <button class="btn pill" id="bFontsPill" title="View all fonts captured from websites">Aa Fonts <span id="fontCountBadge" class="badge">0</span></button>
+    </div>
+    <div class="spacer"></div>
+    <span id="projName" class="projname"></span>
+    <div class="group">
+      <button class="btn primary pill" id="bPreview" title="Test interactive games, calculators and buttons live">▶ Test App</button>
+      <button class="btn" id="bPublish" title="Put this website online for free with Netlify">🚀 Put Online</button>
+      <button class="btn ghost" id="bBrowser" title="Open in your default web browser">🌐 Browser</button>
+      <button class="icon" id="bFolder" title="Show files in Windows Explorer">📁</button>
+      <button class="btn ghost small" id="bCode" title="View or edit raw HTML">&lt;/&gt; Code</button>
+      <button class="icon themeBtn" title="Dark / light mode">🌓</button>
+      <button class="icon fsBtn" title="Full screen (F11)">⛶</button>
+    </div>
+  </header>
+
+  <aside class="left">
+    <nav class="tabs" id="leftTabs">
+      <button data-t="add" class="on" title="Add sections, elements and mini-apps">Add</button>
+      <button data-t="pages" title="All pages in this website">Pages</button>
+      <button data-t="fonts" title="Fonts stolen or used in this website">Fonts</button>
+      <button data-t="assets" title="Imported web apps, tools and pictures in your website">Apps &amp; Pics</button>
+      <button data-t="layers" title="List of elements on this page">Outline</button>
+      <button data-t="bones" title="Inspect layout boxes and grid structures">Boxes</button>
+    </nav>
+    <div class="panel" id="p-add"></div>
+    <div class="panel" id="p-pages" hidden></div>
+    <div class="panel" id="p-fonts" hidden></div>
+    <div class="panel" id="p-assets" hidden></div>
+    <div class="panel" id="p-layers" hidden></div>
+    <div class="panel" id="p-bones" hidden></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="remix-bar" id="remixBar" hidden>
+      <div class="remix-info">
+        <span class="badge" id="remixBadge">FRESH TEMPLATE</span>
+        <strong id="remixTitle">Surprise Studio</strong>
+        <span class="muted" id="remixMeta"></span>
+      </div>
+      <div class="remix-actions">
+        <button class="btn small juice" id="remixRollBtn" title="Generate a completely new layout, font pairing & palette">🎲 Roll Another</button>
+        <button class="btn small" id="remixArchBtn" title="Cycle to the next website archetype">📐 Next Layout</button>
+        <button class="btn small" id="remixFontBtn" title="Swap Google Font pairing">🔤 Swap Fonts</button>
+        <button class="btn small" id="remixPalBtn" title="Swap color theme">🎨 Swap Colors</button>
+        <button class="btn small primary" id="remixLiveWebBtn" title="Pick a random real template from HTML5 UP or StartBootstrap and clone it live!">🌐 Random Live Web Site</button>
+        <button class="btn small" id="remixHubBtn" title="Browse 1,000+ Community Templates">🌍 All Templates</button>
+        <button class="icon" id="remixCloseBtn" title="Hide this bar" style="width:20px;height:20px;font-size:11px;">✕</button>
+      </div>
+    </div>
+    <div class="canvas" id="canvas"><iframe id="frame" sandbox="allow-same-origin"></iframe></div>
+    <div class="codeview" id="codeView" hidden>
+      <div class="codebar">
+        <strong>Page Code (HTML)</strong>
+        <span class="muted">Raw code of this page</span>
+        <div class="spacer"></div>
+        <button class="btn" id="codeCancel">Cancel</button>
+        <button class="btn primary" id="codeApply">Apply changes</button>
+      </div>
+      <textarea id="codeText" spellcheck="false" class="mono"></textarea>
+    </div>
+    <div class="stage-footer">
+      <div class="breadcrumbs" id="crumbs"><span class="crumb">body</span></div>
+      <div class="spacer"></div>
+      <div class="status-hint" id="statusHint">Double-click text to type · Click "▶ Test App" to try interactive mini-apps</div>
+    </div>
+  </main>
+
+  <aside class="right">
+    <nav class="tabs" id="rightTabs">
+      <button data-t="design" class="on">Design</button>
+      <button data-t="code">Code</button>
+      <button data-t="computed">Metrics</button>
+    </nav>
+    <div class="panel" id="inspector"></div>
+    <div class="panel" id="codePanel" hidden>
+      <div class="sec-header">
+        <span>Element HTML</span>
+        <button class="btn small" id="copyElHtml">📋 Copy</button>
+      </div>
+      <textarea id="elHtml" spellcheck="false" class="mono code-box"></textarea>
+      <button class="btn primary full" id="elHtmlApply">Apply to Element</button>
+    </div>
+    <div class="panel" id="computedPanel" hidden>
+      <div class="sec-header">Element Metrics</div>
+      <div id="computedStyles"></div>
+    </div>
+  </aside>
+</div>
+
+<!-- Clone dialog -->
+<div class="modal" id="cloneModal" hidden>
+  <div class="dialog">
+    <h2>🌐 Copy a Website</h2>
+    <p class="muted">Enter any web address. MyHTML will download the page, styling, images, and fonts so you can explore and edit it completely offline.</p>
+    <label>Website address<input id="cUrl" type="text" placeholder="https://example.com" spellcheck="false"></label>
+    <label>Save to folder
+      <div class="path"><input id="cDir" type="text" spellcheck="false"><button class="btn" id="cBrowse">Browse…</button></div>
+    </label>
+    <label>Pages to copy
+      <select id="cPages">
+        <option value="1">Just this main page (Fastest)</option>
+        <option value="3">Up to 3 pages</option>
+        <option value="10">Up to 10 pages</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="cStrip" checked> Strip scripts (uncheck this when copying an interactive Web App or WASM tool so its code stays working!)</label>
+    <div class="err" id="cErr"></div>
+    <pre id="cLog" class="log" hidden></pre>
+    <div class="dlg-actions">
+      <button class="btn" id="cCancel">Cancel</button>
+      <button class="btn primary" id="cGo">Copy Website</button>
+    </div>
+  </div>
+</div>
+
+<!-- Publish dialog -->
+<div class="modal" id="pubModal" hidden>
+  <div class="dialog">
+    <h2>🚀 Put Your Website Online</h2>
+    <div id="pubBody"></div>
+    <div class="err" id="pubErr"></div>
+    <pre id="pubLog" class="log" hidden></pre>
+    <div class="dlg-actions">
+      <button class="btn" id="pubClose">Close</button>
+      <button class="btn primary" id="pubGo">Publish</button>
+    </div>
+  </div>
+</div>
+
+<!-- Community Templates Hub dialog -->
+<div class="modal" id="communityModal" hidden>
+  <div class="dialog wide">
+    <div class="ct-header">
+      <div>
+        <h2 style="margin:0;display:flex;align-items:center;gap:8px;">🌍 Community Website Templates &amp; Indie Web Explorer</h2>
+        <div class="muted small" style="margin-top:2px;">Clone and study real websites, steal their fonts &amp; layout bones, or roll a fresh procedural site in 1 click.</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button class="btn juice" id="ctRandomLiveBtn" title="Pick a random template from the 66+ live HTML5 UP & StartBootstrap collection and open it!">🎲 Open Random Live Template</button>
+        <button class="btn" id="ctGhTokenBtn" title="Optional: Connect a free GitHub API token for 5,000 community searches/hour">🔑 GitHub API Key</button>
+        <button class="btn ghost" id="ctCloseBtn">✕ Close</button>
+      </div>
+    </div>
+
+    <div class="ct-tabs" id="ctTabs">
+      <button class="ct-tab on" data-ct-tab="curated">✨ Curated Free Templates <span class="badge">66</span></button>
+      <button class="ct-tab" data-ct-tab="neocities">📼 Neocities Indie Web <span class="badge">Live 100+</span></button>
+      <button class="ct-tab" data-ct-tab="github">🐙 GitHub Community <span class="badge">10k+ API</span></button>
+      <button class="ct-tab" data-ct-tab="remix">🎲 Instant Remix Studio</button>
+    </div>
+
+    <div class="ct-toolbar" id="ctToolbar">
+      <div class="ct-pills" id="ctPills"></div>
+      <div class="ct-search" id="ctSearchWrap">
+        <input type="text" id="ctSearchInput" placeholder="Search templates or tags…" spellcheck="false">
+        <button class="btn primary" id="ctSearchBtn">Search</button>
+      </div>
+    </div>
+
+    <div class="ct-body" id="ctBody"></div>
+
+    <div class="ct-footer">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;font-weight:500;">
+        <input type="checkbox" id="ctAutoStartupCheck">
+        <span>🚀 Open MyHTML straight into a fresh random website template every time the app starts</span>
+      </label>
+      <span class="muted" id="ctStatusText">Ready — click any template to clone &amp; edit offline in MyHTML</span>
+    </div>
+  </div>
+</div>
+
+<!-- Generic ask dialog -->
+<div class="modal" id="askModal" hidden>
+  <div class="dialog small">
+    <h2 id="askTitle"></h2>
+    <div id="askBody"></div>
+    <div class="dlg-actions">
+      <button class="btn" id="askCancel">Cancel</button>
+      <button class="btn primary" id="askOk">OK</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script src="templates.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
