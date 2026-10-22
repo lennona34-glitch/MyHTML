@@ -947,10 +947,212 @@ function generateFreshWebsite({ archetypeId, paletteId, fontPairId } = {}) {
   .zine-meta span { display: block; color: var(--muted); font-size: 9.5px; }
   .zine-giant { font-size: clamp(26px, 4vw, 44px); line-height: 1.02; margin-bottom: 10px; }
   .zine-sub { font-size: 14px; max-width: 760px; margin: 0; }
+  body.alt-grid .card-grid-3, body.alt-grid .card-grid-4 { grid-template-columns: 1fr 1fr; }
+  .site-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 7, 14, 0.76);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99990;
+    padding: 20px;
+  }
+  .site-drawer-backdrop[hidden] { display: none !important; }
+  .site-drawer {
+    background: var(--surf);
+    color: var(--text);
+    border: 2px solid var(--acc);
+    border-radius: 12px;
+    width: 680px;
+    max-width: 94vw;
+    max-height: 84vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    overflow: hidden;
+  }
+  .site-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: var(--surf2);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-drawer-body {
+    padding: 18px 20px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .site-drawer-body pre {
+    background: var(--bg);
+    color: var(--acc);
+    border: 1px solid var(--border);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
 </style>
 </head>
 <body>
 ${bodyHtml}
+<div id="siteDrawerBackdrop" class="site-drawer-backdrop" hidden>
+  <div class="site-drawer">
+    <div class="site-drawer-head">
+      <div>
+        <span class="badge" id="sdBadge">INTERACTIVE VIEW</span>
+        <strong id="sdTitle" style="margin-left:8px;font-family:var(--font-head);font-size:16px;">Details</strong>
+      </div>
+      <button class="btn-sm acc" id="sdCloseBtn" onclick="document.getElementById('siteDrawerBackdrop').hidden=true">✕ Close</button>
+    </div>
+    <div class="site-drawer-body" id="sdBody"></div>
+  </div>
+</div>
+<script id="__mh_site_runtime">
+(function() {
+  var audioCtx = null;
+  function playTone(type) {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtx) audioCtx = new Ctx();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      var now = audioCtx.currentTime;
+      var notes = type === 'acid' ? [110, 110, 220, 110, 164.8, 146.8]
+                : type === 'bell' ? [523.25, 659.25, 783.99, 1046.5]
+                : type === 'pad'  ? [220, 277.18, 329.63, 440]
+                : [130.81, 196.00, 246.94, 329.63];
+      notes.forEach(function(freq, i) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = type === 'acid' ? 'sawtooth' : type === 'bell' ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, now + (type === 'acid' ? i * 0.11 : 0));
+        gain.gain.setValueAtTime(0.08, now + (type === 'acid' ? i * 0.11 : 0));
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + (type === 'acid' ? (i + 1) * 0.11 : 1.1));
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now + (type === 'acid' ? i * 0.11 : 0));
+        osc.stop(now + (type === 'acid' ? (i + 1) * 0.12 : 1.15));
+      });
+    } catch (e) {}
+  }
+
+  window.MySiteRunButton = function(btn) {
+    if (!btn) return;
+    var label = (btn.textContent || '').trim();
+    var card = btn.closest('article, .card, tr, .hero-compact, .side-card, section') || document.body;
+    var cardTitleEl = card.querySelector('h3, h2, h1, td:nth-child(2), b');
+    var cardTitle = cardTitleEl ? cardTitleEl.textContent.trim() : label;
+    var backdrop = document.getElementById('siteDrawerBackdrop');
+    var sdBadge = document.getElementById('sdBadge');
+    var sdTitle = document.getElementById('sdTitle');
+    var sdBody = document.getElementById('sdBody');
+    if (!backdrop || !sdBody) return;
+
+    if (/essay|manifesto|changelog|discography/i.test(label)) {
+      sdBadge.textContent = 'ESSAY & FIELD NOTES';
+      sdTitle.textContent = cardTitle;
+      sdBody.innerHTML =
+        '<p style="font-size:15px;color:var(--text);font-weight:600;">“When you put real buttons, tables, and controls above the fold, a website stops being a poster and becomes an instrument.”</p>' +
+        '<p>Modern corporate web design hides everything behind giant empty hero banners and three-word slogans. By contrast, the best personal sites, hardware archives, and zines treat the screen like a workbench.</p>' +
+        '<p><b>Key Structural Principles:</b></p>' +
+        '<ul>' +
+          '<li><b>Visible Bones:</b> Expose grid borders, table headers, and metadata badges so the reader can scan the whole page in two seconds.</li>' +
+          '<li><b>High-Contrast Typography:</b> Pair an expressive display header font with a crisp monospace font for numbers, hex offsets, and tags.</li>' +
+          '<li><b>Zero-Bloat Interactivity:</b> Self-contained HTML + CSS + vanilla JS tools that run instantaneously offline.</li>' +
+        '</ul>' +
+        '<div style="margin-top:14px;padding:12px;background:var(--surf2);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:12px;">' +
+          '💡 <b>Tip:</b> Click <b>🩻 Show Boxes</b> in the top toolbar to see the exact HTML container structure of this layout!' +
+        '</div>';
+      backdrop.hidden = false;
+    } else if (/font|glyph|specimen|typography/i.test(label)) {
+      var headFont = getComputedStyle(document.documentElement).getPropertyValue('--font-head') || 'sans-serif';
+      var bodyFont = getComputedStyle(document.documentElement).getPropertyValue('--font-body') || 'sans-serif';
+      var monoFont = getComputedStyle(document.documentElement).getPropertyValue('--font-mono') || 'monospace';
+      sdBadge.textContent = 'LIVE FONT INSPECTOR';
+      sdTitle.textContent = 'Live Type Specimen & Playground';
+      sdBody.innerHTML =
+        '<div style="margin-bottom:12px;">' +
+          '<label style="display:block;font-size:11px;font-family:var(--font-mono);color:var(--muted);margin-bottom:4px;">TYPE ANYTHING BELOW TO TEST THIS FONT LIVE:</label>' +
+          '<input type="text" value="Small websites with sharp bones — 0123456789" style="width:100%;padding:8px 10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:14px;" oninput="document.getElementById(\\'liveFontSampleH\\').textContent=this.value;document.getElementById(\\'liveFontSampleB\\').textContent=this.value;">' +
+        '</div>' +
+        '<div style="padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;">' +
+          '<div style="font-size:10px;font-family:var(--font-mono);color:var(--acc);margin-bottom:4px;">DISPLAY HEADER FONT: ' + headFont.replace(/"/g, '') + '</div>' +
+          '<div id="liveFontSampleH" style="font-family:var(--font-head);font-size:28px;font-weight:800;line-height:1.15;color:var(--text);">Small websites with sharp bones — 0123456789</div>' +
+        '</div>' +
+        '<div style="padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;">' +
+          '<div style="font-size:10px;font-family:var(--font-mono);color:var(--acc);margin-bottom:4px;">BODY & UI FONT: ' + bodyFont.replace(/"/g, '') + '</div>' +
+          '<div id="liveFontSampleB" style="font-family:var(--font-body);font-size:15px;color:var(--text);">Small websites with sharp bones — 0123456789</div>' +
+        '</div>' +
+        '<div style="padding:12px;background:var(--surf2);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:12px;">' +
+          'MONO / METADATA FONT: ' + monoFont.replace(/"/g, '') + ' · 0x7F4A · 128 BPM' +
+        '</div>';
+      backdrop.hidden = false;
+    } else if (/code|source|blueprint|tree|spec|csv|pdf/i.test(label)) {
+      sdBadge.textContent = 'HTML / CSS BONES';
+      sdTitle.textContent = 'Clean Component Markup: ' + cardTitle;
+      var snippet = (card.outerHTML || '').replace(/\\s+/g, ' ').replace(/>\\s*</g, '>\\n<');
+      sdBody.innerHTML =
+        '<p>Here is the exact HTML structure for <b>' + cardTitle.replace(/</g, '&lt;') + '</b>:</p>' +
+        '<pre id="sdCodePre"></pre>' +
+        '<button class="btn-sm acc" onclick="navigator.clipboard.writeText(document.getElementById(\\'sdCodePre\\').textContent);this.textContent=\\'✓ Copied to Clipboard!\\'">📋 Copy Component HTML</button>';
+      document.getElementById('sdCodePre').textContent = snippet;
+      backdrop.hidden = false;
+    } else if (/patch|audition|solo|trigger|play|sampler|cutoff|wet|stream|chiptune/i.test(label)) {
+      var mode = /303|acid|bass/i.test(cardTitle) ? 'acid' : /bell|dx|glass/i.test(cardTitle) ? 'bell' : /pad|ambient|drift/i.test(cardTitle) ? 'pad' : 'brass';
+      playTone(mode);
+      sdBadge.textContent = '🔊 WEBAUDIO SYNTH ENGINE';
+      sdTitle.textContent = 'Now Playing: ' + cardTitle;
+      sdBody.innerHTML =
+        '<p style="color:var(--text);">Synthesizing real-time WebAudio oscillator voice (<b>' + mode.toUpperCase() + '</b>) direct from the browser:</p>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0;">' +
+          '<button class="btn acc" id="synthBtnBrass">🎹 Play CS-80 Brass Chord</button>' +
+          '<button class="btn acc" id="synthBtnAcid">🧪 Play 303 Acid Sequence</button>' +
+          '<button class="btn acc" id="synthBtnBell">🔔 Play FM Crystal Bell</button>' +
+          '<button class="btn acc" id="synthBtnPad">🌊 Play Warm Drift Pad</button>' +
+        '</div>' +
+        '<pre>Oscillator: Polyphonic WebAudio API\\nFilter: 24dB/oct Lowpass · Resonance Q=0.72\\nStatus: Active (Zero external audio files required)</pre>';
+      backdrop.hidden = false;
+      document.getElementById('synthBtnBrass').onclick = function() { playTone('brass'); };
+      document.getElementById('synthBtnAcid').onclick = function() { playTone('acid'); };
+      document.getElementById('synthBtnBell').onclick = function() { playTone('bell'); };
+      document.getElementById('synthBtnPad').onclick = function() { playTone('pad'); };
+    } else {
+      playTone('bell');
+      sdBadge.textContent = 'INTERACTIVE MODULE';
+      sdTitle.textContent = cardTitle;
+      sdBody.innerHTML =
+        '<p style="color:var(--text);font-weight:600;">Interactive Module: ' + cardTitle.replace(/</g, '&lt;') + '</p>' +
+        '<p>Triggered action: <code>' + label.replace(/</g, '&lt;') + '</code></p>' +
+        '<div style="padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:12px;">' +
+          'STATUS: ONLINE · READY FOR CUSTOMIZATION<br>' +
+          'Double-click any text in MyHTML Edit Mode to rewrite this card or add your own web apps!' +
+        '</div>';
+      backdrop.hidden = false;
+    }
+  };
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('button, a.btn, a.btn-sm, .side-btn');
+    if (!btn) return;
+    if (btn.id === 'sdCloseBtn' || btn.closest('#siteDrawerBackdrop')) return;
+    if (btn.classList.contains('side-btn')) {
+      var parent = btn.parentElement;
+      if (parent) parent.querySelectorAll('.side-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    }
+    if (!btn.getAttribute('onclick')) {
+      e.preventDefault();
+      window.MySiteRunButton(btn);
+    }
+  });
+})();
+</script>
 </body>
 </html>`;
 

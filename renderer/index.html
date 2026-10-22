@@ -86,6 +86,7 @@
     <div class="spacer"></div>
     <span id="projName" class="projname"></span>
     <div class="group">
+      <button class="btn juice pill" id="bFullPage" title="View website edge-to-edge in Full Page Mode with all buttons & scripts live (F5)">🖥 Full Page</button>
       <button class="btn primary pill" id="bPreview" title="Test interactive games, calculators and buttons live">▶ Test App</button>
       <button class="btn" id="bPublish" title="Put this website online for free with Netlify">🚀 Put Online</button>
       <button class="btn ghost" id="bBrowser" title="Open in your default web browser">🌐 Browser</button>
@@ -114,19 +115,21 @@
   </aside>
 
   <main class="stage" id="stage">
-    <div class="remix-bar" id="remixBar" hidden>
+    <div class="remix-bar" id="remixBar">
       <div class="remix-info">
-        <span class="badge" id="remixBadge">FRESH TEMPLATE</span>
-        <strong id="remixTitle">Surprise Studio</strong>
+        <span class="badge" id="remixBadge">STUDIO</span>
+        <strong id="remixTitle">Website</strong>
         <span class="muted" id="remixMeta"></span>
       </div>
       <div class="remix-actions">
-        <button class="btn small juice" id="remixRollBtn" title="Generate a completely new layout, font pairing & palette">🎲 Roll Another</button>
-        <button class="btn small" id="remixArchBtn" title="Cycle to the next website archetype">📐 Next Layout</button>
-        <button class="btn small" id="remixFontBtn" title="Swap Google Font pairing">🔤 Swap Fonts</button>
-        <button class="btn small" id="remixPalBtn" title="Swap color theme">🎨 Swap Colors</button>
-        <button class="btn small primary" id="remixLiveWebBtn" title="Pick a random real template from HTML5 UP or StartBootstrap and clone it live!">🌐 Random Live Web Site</button>
-        <button class="btn small" id="remixHubBtn" title="Browse 1,000+ Community Templates">🌍 All Templates</button>
+        <button class="btn small" id="remixFontBtn" title="Live-swap Google Fonts on ANY open website or template">🔤 Swap Fonts</button>
+        <button class="btn small" id="remixPalBtn" title="Live-swap Color Theme on ANY open website or template">🎨 Swap Colors</button>
+        <button class="btn small" id="remixStealVibeBtn" title="Steal this website's exact colors & fonts into your Saved Vibes!">🪄 Steal Vibe</button>
+        <button class="btn small" id="remixApplyVibeBtn" title="Apply a stolen website Vibe onto the current page">✨ Apply Stolen Vibe</button>
+        <button class="btn small ghost" id="remixResetBtn" title="Restore this website's original fonts and colors">↺ Original Look</button>
+        <button class="btn small" id="remixArchBtn" title="Cycle to the next compact website layout">📐 Next Layout</button>
+        <button class="btn small juice" id="remixRollBtn" title="Generate a brand-new surprise website">🎲 Roll Site</button>
+        <button class="btn small primary" id="remixFullPageBtn" title="Open edge-to-edge Full Page View (F5 / Esc)">🖥 Full Page</button>
         <button class="icon" id="remixCloseBtn" title="Hide this bar" style="width:20px;height:20px;font-size:11px;">✕</button>
       </div>
     </div>
@@ -262,6 +265,15 @@
       <button class="btn primary" id="askOk">OK</button>
     </div>
   </div>
+</div>
+<!-- Floating Full Page Mode HUD -->
+<div id="fullpageHud" class="fullpage-hud" hidden>
+  <button class="btn primary small" id="fpExitBtn" title="Exit Full Page Mode back to Editor (Esc)">✎ Back to Editor (Esc)</button>
+  <button class="btn small" id="fpFontBtn" title="Live-swap fonts on this page">🔤 Fonts</button>
+  <button class="btn small" id="fpColorBtn" title="Live-swap color theme on this page">🎨 Colors</button>
+  <button class="btn small" id="fpVibeBtn" title="Cycle through stolen website Vibes">🪄 Vibe</button>
+  <button class="btn small juice" id="fpRollBtn" title="Roll a brand-new surprise site">🎲 Roll Site</button>
+  <button class="btn small" id="fpOsFsBtn" title="Toggle OS Monitor Fullscreen (F11)">⛶ F11</button>
 </div>
 <div id="toast"></div>
 

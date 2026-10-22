@@ -112,6 +112,13 @@
     $('#welcome').hidden = true;
     $('#app').hidden = false;
     $('#projName').textContent = info.name;
+    const bar = $('#remixBar');
+    if (bar && !info.meta) {
+      bar.hidden = false;
+      $('#remixBadge').textContent = 'ACTIVE SITE';
+      $('#remixTitle').textContent = info.name;
+      $('#remixMeta').textContent = '· Use 🔤 Swap Fonts, 🎨 Swap Colors, or 🪄 Steal Vibe on any page!';
+    }
     renderPages();
     renderAddPanel();
     await refreshFontsAndAssets();
@@ -347,6 +354,8 @@
     if (!doc) return '';
     const c = doc.documentElement.cloneNode(true);
     $$('#__mh_base, #__mh_style, #__mh_bones, #__mh_drop', c).forEach((n) => n.remove());
+    const sd = c.querySelector('#siteDrawerBackdrop');
+    if (sd) sd.setAttribute('hidden', '');
     $$('[contenteditable]', c).forEach((n) => n.removeAttribute('contenteditable'));
     $$('[data-bone-tag], [data-hub-bound]', c).forEach((n) => {
       n.removeAttribute('data-bone-tag');
@@ -562,6 +571,187 @@
     toast(`📦 Added "${app.title}" to page! Click "▶ Test App" at the top to try it live.`);
   }
 
+  let editorAudioCtx = null;
+  function playEditorSynthTone(type = 'brass') {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!editorAudioCtx) editorAudioCtx = new Ctx();
+      if (editorAudioCtx.state === 'suspended') editorAudioCtx.resume();
+      const now = editorAudioCtx.currentTime;
+      const notes = type === 'acid' ? [110, 110, 220, 110, 164.8, 146.8]
+                  : type === 'bell' ? [523.25, 659.25, 783.99, 1046.5]
+                  : type === 'pad'  ? [220, 277.18, 329.63, 440]
+                  : [130.81, 196.00, 246.94, 329.63];
+      notes.forEach((freq, i) => {
+        const osc = editorAudioCtx.createOscillator();
+        const gain = editorAudioCtx.createGain();
+        osc.type = type === 'acid' ? 'sawtooth' : type === 'bell' ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, now + (type === 'acid' ? i * 0.11 : 0));
+        gain.gain.setValueAtTime(0.08, now + (type === 'acid' ? i * 0.11 : 0));
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + (type === 'acid' ? (i + 1) * 0.11 : 1.1));
+        osc.connect(gain);
+        gain.connect(editorAudioCtx.destination);
+        osc.start(now + (type === 'acid' ? i * 0.11 : 0));
+        osc.stop(now + (type === 'acid' ? (i + 1) * 0.12 : 1.15));
+      });
+    } catch {}
+  }
+
+  function runEditorTemplateButton(btn) {
+    if (!doc || !btn) return;
+    const label = (btn.textContent || '').trim();
+    if (btn.classList.contains('side-btn') && btn.parentElement) {
+      btn.parentElement.querySelectorAll('.side-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    if (/toggle compact/i.test(label)) {
+      doc.body.classList.toggle('alt-grid');
+      toast('Toggled compact grid layout');
+      return;
+    }
+    if (/tap tempo/i.test(label)) {
+      const b = doc.getElementById('bpmVal');
+      if (b) b.textContent = String((parseInt(b.textContent, 10) + 4) % 180 || 120);
+      playEditorSynthTone('bell');
+      return;
+    }
+    if (/subscribe/i.test(label)) {
+      btn.textContent = '✓ Subscribed!';
+      playEditorSynthTone('bell');
+      toast('✓ Subscribed!');
+      return;
+    }
+
+    const card = btn.closest('article, .card, tr, .hero-compact, .side-card, section') || doc.body;
+    const cardTitleEl = card.querySelector('h3, h2, h1, td:nth-child(2), b');
+    const cardTitle = cardTitleEl ? cardTitleEl.textContent.trim() : label;
+    let backdrop = doc.getElementById('siteDrawerBackdrop');
+    if (!backdrop) {
+      let st = doc.getElementById('__mh_drawer_css');
+      if (!st) {
+        st = doc.createElement('style');
+        st.id = '__mh_drawer_css';
+        st.textContent = `
+          .site-drawer-backdrop { position:fixed; inset:0; background:rgba(5,7,14,0.78); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:99990; padding:20px; }
+          .site-drawer-backdrop[hidden] { display:none !important; }
+          .site-drawer { background:var(--surf, #131722); color:var(--text, #f1f5f9); border:2px solid var(--acc, #6366f1); border-radius:12px; width:680px; max-width:94vw; max-height:84vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,0.65); overflow:hidden; font-family:var(--font-body, system-ui, sans-serif); }
+          .site-drawer-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:var(--surf2, #1c2230); border-bottom:1px solid var(--border, #262f42); }
+          .site-drawer-body { padding:18px 20px; overflow-y:auto; font-size:14px; line-height:1.65; }
+          .site-drawer-body pre { background:var(--bg, #0b0d12); color:var(--acc, #a3e635); border:1px solid var(--border, #262f42); padding:12px; border-radius:8px; overflow-x:auto; font-family:var(--font-mono, monospace); font-size:12px; }
+        `;
+        doc.head.appendChild(st);
+      }
+      backdrop = doc.createElement('div');
+      backdrop.id = 'siteDrawerBackdrop';
+      backdrop.className = 'site-drawer-backdrop';
+      backdrop.hidden = true;
+      backdrop.innerHTML = `
+        <div class="site-drawer">
+          <div class="site-drawer-head">
+            <div>
+              <span class="badge" id="sdBadge">INTERACTIVE VIEW</span>
+              <strong id="sdTitle" style="margin-left:8px;font-size:16px;">Details</strong>
+            </div>
+            <button class="btn-sm acc" id="sdCloseBtn" onclick="document.getElementById('siteDrawerBackdrop').hidden=true">✕ Close</button>
+          </div>
+          <div class="site-drawer-body" id="sdBody"></div>
+        </div>
+      `;
+      doc.body.appendChild(backdrop);
+    }
+    const sdBadge = doc.getElementById('sdBadge');
+    const sdTitle = doc.getElementById('sdTitle');
+    const sdBody = doc.getElementById('sdBody');
+    if (!backdrop || !sdBody) return;
+
+    if (/essay|manifesto|changelog|discography/i.test(label)) {
+      sdBadge.textContent = 'ESSAY & FIELD NOTES';
+      sdTitle.textContent = cardTitle;
+      sdBody.innerHTML =
+        `<p style="font-size:15px;color:var(--text);font-weight:600;">“When you put real buttons, tables, and controls above the fold, a website stops being a poster and becomes an instrument.”</p>` +
+        `<p>Modern corporate web design hides everything behind giant empty hero banners and three-word slogans. By contrast, the best personal sites, hardware archives, and zines treat the screen like a workbench.</p>` +
+        `<p><b>Key Structural Principles:</b></p>` +
+        `<ul>` +
+          `<li><b>Visible Bones:</b> Expose grid borders, table headers, and metadata badges so the reader can scan the whole page in two seconds.</li>` +
+          `<li><b>High-Contrast Typography:</b> Pair an expressive display header font with a crisp monospace font for numbers, hex offsets, and tags.</li>` +
+          `<li><b>Zero-Bloat Interactivity:</b> Self-contained HTML + CSS + vanilla JS tools that run instantaneously offline.</li>` +
+        `</ul>` +
+        `<div style="margin-top:14px;padding:12px;background:var(--surf2);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:12px;">` +
+          `💡 <b>Tip:</b> Click <b>🩻 Show Boxes</b> in the top toolbar to see the exact HTML container structure of this layout!` +
+        `</div>`;
+      backdrop.hidden = false;
+    } else if (/font|glyph|specimen|typography/i.test(label)) {
+      const comp = doc.defaultView.getComputedStyle(doc.documentElement);
+      const headFont = comp.getPropertyValue('--font-head') || 'sans-serif';
+      const bodyFont = comp.getPropertyValue('--font-body') || 'sans-serif';
+      const monoFont = comp.getPropertyValue('--font-mono') || 'monospace';
+      sdBadge.textContent = 'LIVE FONT INSPECTOR';
+      sdTitle.textContent = 'Live Type Specimen & Playground';
+      sdBody.innerHTML =
+        `<div style="padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;">` +
+          `<div style="font-size:10px;font-family:var(--font-mono);color:var(--acc);margin-bottom:4px;">DISPLAY HEADER FONT: ${esc(headFont.replace(/"/g, ''))}</div>` +
+          `<div style="font-family:var(--font-head);font-size:28px;font-weight:800;line-height:1.15;color:var(--text);">Small websites with sharp bones — 0123456789</div>` +
+        `</div>` +
+        `<div style="padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;">` +
+          `<div style="font-size:10px;font-family:var(--font-mono);color:var(--acc);margin-bottom:4px;">BODY & UI FONT: ${esc(bodyFont.replace(/"/g, ''))}</div>` +
+          `<div style="font-family:var(--font-body);font-size:15px;color:var(--text);">Sphinx of black quartz, judge my vow. Pack my box with five dozen liquor jugs.</div>` +
+        `</div>` +
+        `<div style="padding:12px;background:var(--surf2);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:12px;">` +
+          `MONO / METADATA FONT: ${esc(monoFont.replace(/"/g, ''))} · 0x7F4A · 128 BPM` +
+        `</div>`;
+      backdrop.hidden = false;
+      // Also switch the left sidebar to the Fonts tab so the user can steal/apply them!
+      $('#bFontsPill').click();
+    } else if (/code|source|blueprint|tree|spec|csv|pdf/i.test(label)) {
+      sdBadge.textContent = 'HTML / CSS BONES';
+      sdTitle.textContent = 'Clean Component Markup: ' + cardTitle;
+      const snippet = (card.outerHTML || '')
+        .replace(/\s*class="__mh-[^"]*"/g, '')
+        .replace(/__mh-[a-z-]+/g, '')
+        .replace(/>\s*</g, '>\n<')
+        .trim();
+      sdBody.innerHTML =
+        `<p>Exact HTML structure for <b>${esc(cardTitle)}</b>:</p>` +
+        `<pre id="sdCodePre">${esc(snippet)}</pre>` +
+        `<button class="btn-sm acc">📋 Copy Component HTML</button>`;
+      backdrop.hidden = false;
+      select(card);
+      $$('#rightTabs button').forEach((x) => x.classList.toggle('on', x.dataset.t === 'code'));
+      $('#inspector').hidden = true;
+      $('#codePanel').hidden = false;
+      $('#computedPanel').hidden = true;
+      showElHtml();
+    } else if (/patch|audition|solo|trigger|play|sampler|cutoff|wet|stream|chiptune/i.test(label)) {
+      const mode = /303|acid|bass/i.test(cardTitle) ? 'acid' : /bell|dx|glass/i.test(cardTitle) ? 'bell' : /pad|ambient|drift/i.test(cardTitle) ? 'pad' : 'brass';
+      playEditorSynthTone(mode);
+      sdBadge.textContent = '🔊 WEBAUDIO SYNTH ENGINE';
+      sdTitle.textContent = 'Now Playing: ' + cardTitle;
+      sdBody.innerHTML =
+        `<p style="color:var(--text);">Synthesizing real-time WebAudio oscillator voice (<b>${mode.toUpperCase()}</b>) direct from the browser:</p>` +
+        `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0;">` +
+          `<button class="btn acc" id="synthBtnBrass">🎹 Play CS-80 Brass Chord</button>` +
+          `<button class="btn acc" id="synthBtnAcid">🧪 Play 303 Acid Sequence</button>` +
+          `<button class="btn acc" id="synthBtnBell">🔔 Play FM Crystal Bell</button>` +
+          `<button class="btn acc" id="synthBtnPad">🌊 Play Warm Drift Pad</button>` +
+        `</div>` +
+        `<pre>Oscillator: Polyphonic WebAudio API\nFilter: 24dB/oct Lowpass · Resonance Q=0.72\nStatus: Active (Zero external audio files required)</pre>`;
+      backdrop.hidden = false;
+    } else {
+      playEditorSynthTone('bell');
+      sdBadge.textContent = 'INTERACTIVE MODULE';
+      sdTitle.textContent = cardTitle;
+      sdBody.innerHTML =
+        `<p style="color:var(--text);font-weight:600;">Interactive Module: ${esc(cardTitle)}</p>` +
+        `<p>Triggered action: <code>${esc(label)}</code></p>` +
+        `<div style="padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:12px;">` +
+          `STATUS: ONLINE · READY FOR CUSTOMIZATION<br>` +
+          `Click <b>🖥 Full Page</b> in the top bar to experience this page edge-to-edge!` +
+        `</div>`;
+      backdrop.hidden = false;
+    }
+  }
+
   function handleAppAndHubButtons(e) {
     const t = e.target;
     if (!t || !t.closest) return false;
@@ -619,6 +809,44 @@
     }
 
     if (!S.live) {
+      // Handle interactive template drawer & buttons even in Editor Mode!
+      const sdClose = t.closest('#sdCloseBtn');
+      if (sdClose || t.id === 'siteDrawerBackdrop') {
+        e.preventDefault();
+        const bd = doc.getElementById('siteDrawerBackdrop');
+        if (bd) bd.hidden = true;
+        return true;
+      }
+      if (t.closest('#siteDrawerBackdrop')) {
+        const synthBtn = t.closest('#synthBtnBrass, #synthBtnAcid, #synthBtnBell, #synthBtnPad');
+        if (synthBtn) {
+          e.preventDefault();
+          const mode = synthBtn.id === 'synthBtnAcid' ? 'acid' : synthBtn.id === 'synthBtnBell' ? 'bell' : synthBtn.id === 'synthBtnPad' ? 'pad' : 'brass';
+          playEditorSynthTone(mode);
+          return true;
+        }
+        const copyBtn = t.closest('button');
+        if (copyBtn && /copy/i.test(copyBtn.textContent)) {
+          e.preventDefault();
+          const pre = doc.getElementById('sdCodePre');
+          if (pre) {
+            navigator.clipboard.writeText(pre.textContent);
+            copyBtn.textContent = '✓ Copied to Clipboard!';
+            toast('Component HTML copied!');
+          }
+          return true;
+        }
+        return true;
+      }
+
+      const tplBtn = t.closest('button, a.btn, a.btn-sm, .side-btn');
+      if (tplBtn && !tplBtn.closest('.myhtml-app-hub, .myhtml-app-embed')) {
+        e.preventDefault();
+        select(tplBtn);
+        runEditorTemplateButton(tplBtn);
+        return true;
+      }
+
       const hubItem = t.closest('.myhtml-hub-item');
       if (hubItem) {
         e.preventDefault();
@@ -658,6 +886,18 @@
     doc.addEventListener('click', (e) => {
       handleAppAndHubButtons(e);
     }, true);
+    doc.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.body.classList.contains('fullpage-mode')) {
+        e.preventDefault();
+        toggleFullPageMode(false);
+      } else if (e.key === 'F5') {
+        e.preventDefault();
+        toggleFullPageMode();
+      } else if (e.key === 'F11') {
+        e.preventDefault();
+        api.fullscreen();
+      }
+    });
   }
 
   function attach() {
@@ -1983,11 +2223,269 @@
     await cloneCommunitySite(picked);
   }
 
-  // Bind Topbar, Welcome & Remix Bar buttons
+  /* ---------- Universal Font Swap, Color Swap, Vibe Stealer & Full Page Mode ---------- */
+  let curFontIdx = -1;
+  let curPalIdx = -1;
+  let curVibeIdx = -1;
+
+  const DEFAULT_VIBES = [
+    { name: 'Cyberpunk 2077 Yellow & Cyan', bg: '#fcee0a', surf: '#111111', surf2: '#1d1d22', text: '#00f0ff', muted: '#fcee0a', acc: '#ff003c', accText: '#ffffff', border: '#00f0ff', head: 'Chakra Petch', body: 'Rajdhani', mono: 'Share Tech Mono', gurl: 'Chakra+Petch:wght@700&family=Rajdhani:wght@600;700&family=Share+Tech+Mono' },
+    { name: 'ASOS Editorial Monochrome', bg: '#ffffff', surf: '#f8f8f8', surf2: '#eeeeee', text: '#2d2d2d', muted: '#666666', acc: '#008849', accText: '#ffffff', border: '#dddddd', head: 'Syne', body: 'DM Sans', mono: 'JetBrains Mono', gurl: 'Syne:wght@700;800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400' },
+    { name: 'Teenage Engineering Industrial', bg: '#e5e3dc', surf: '#f4f2ec', surf2: '#d5d2c8', text: '#161616', muted: '#5c5a54', acc: '#ff4f00', accText: '#ffffff', border: '#b8b5ab', head: 'Space Grotesk', body: 'IBM Plex Sans', mono: 'IBM Plex Mono', gurl: 'Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600' },
+    { name: 'Matrix Terminal Phosphor', bg: '#050805', surf: '#0a120a', surf2: '#112211', text: '#4ade80', muted: '#16a34a', acc: '#22c55e', accText: '#030703', border: '#15803d', head: 'VT323', body: 'Space Mono', mono: 'Space Mono', gurl: 'VT323&family=Space+Mono:wght@400;700' }
+  ];
+
+  function getSavedVibes() {
+    try {
+      const raw = JSON.parse(localStorage.getItem('myhtml-stolen-vibes') || 'null');
+      if (Array.isArray(raw) && raw.length) return raw;
+    } catch {}
+    return DEFAULT_VIBES;
+  }
+
+  function saveVibesList(list) {
+    localStorage.setItem('myhtml-stolen-vibes', JSON.stringify(list));
+  }
+
+  function applyFontPairToAnyPage(fnt) {
+    if (!doc || !fnt) return;
+    if (fnt.gurl) {
+      let link = doc.getElementById('__mh_gfont_override');
+      if (!link) {
+        link = doc.createElement('link');
+        link.id = '__mh_gfont_override';
+        link.rel = 'stylesheet';
+        doc.head.appendChild(link);
+      }
+      link.href = `https://fonts.googleapis.com/css2?family=${fnt.gurl}&display=swap`;
+    }
+    let st = doc.getElementById('__mh_font_override');
+    if (!st) {
+      st = doc.createElement('style');
+      st.id = '__mh_font_override';
+      doc.head.appendChild(st);
+    }
+    const h = fnt.head || 'sans-serif';
+    const b = fnt.body || h;
+    const m = fnt.mono || 'monospace';
+    st.textContent = `
+      :root {
+        --font-head: '${h}', system-ui, sans-serif !important;
+        --font-body: '${b}', system-ui, sans-serif !important;
+        --font-mono: '${m}', monospace !important;
+      }
+      body, p, li, td, th, input, select, textarea, button, a, div, span:not(.fa):not(.icon) {
+        font-family: '${b}', system-ui, sans-serif !important;
+      }
+      h1, h2, h3, h4, h5, h6, .logo, .brand b, header b, .title, .zine-giant, .stat-chip b {
+        font-family: '${h}', system-ui, sans-serif !important;
+      }
+      code, pre, .mono, .mono-sm, .badge, .tag, .pill, .kicker, .ticker {
+        font-family: '${m}', monospace !important;
+      }
+    `;
+    if (lastRollMeta) lastRollMeta.fontPairId = fnt.id;
+    const metaEl = $('#remixMeta');
+    if (metaEl) metaEl.textContent = `· Fonts: ${fnt.name || (h + ' + ' + b)}`;
+    if (!S.live) commit();
+    else if (S.dir && S.page) api.writePage(S.dir, S.page, serialize()).then(() => refreshFontsAndAssets());
+  }
+
+  function applyPaletteToAnyPage(pal) {
+    if (!doc || !pal) return;
+    let st = doc.getElementById('__mh_pal_override');
+    if (!st) {
+      st = doc.createElement('style');
+      st.id = '__mh_pal_override';
+      doc.head.appendChild(st);
+    }
+    st.textContent = `
+      :root {
+        --bg: ${pal.bg} !important;
+        --surf: ${pal.surf} !important;
+        --surf2: ${pal.surf2 || pal.surf} !important;
+        --text: ${pal.text} !important;
+        --muted: ${pal.muted} !important;
+        --acc: ${pal.acc} !important;
+        --acc-text: ${pal.accText || '#000000'} !important;
+        --border: ${pal.border || pal.muted} !important;
+      }
+      html, body, #wrapper, #page-wrapper, main {
+        background-color: ${pal.bg} !important;
+        color: ${pal.text} !important;
+      }
+      header, nav, footer, section, article, aside, .card, .side-card, .table-card, .hero-compact, .box, .panel, .inner, .spotlights > section, .features section, .zine-banner {
+        background-color: ${pal.surf} !important;
+        color: ${pal.text} !important;
+        border-color: ${pal.border || pal.muted} !important;
+      }
+      th, .ticker, .calc-box, .stat-chip, .tag {
+        background-color: ${pal.surf2 || pal.surf} !important;
+        color: ${pal.text} !important;
+        border-color: ${pal.border || pal.muted} !important;
+      }
+      h1, h2, h3, h4, h5, h6, b, strong, th, a:not(.btn):not(.button):not(.acc) {
+        color: ${pal.text} !important;
+      }
+      p, small, .muted, .sub, td, li {
+        color: ${pal.muted} !important;
+      }
+      button.acc, .btn.acc, .btn-sm.acc, .button.primary, .button.special, input[type="submit"], .btn.primary {
+        background-color: ${pal.acc} !important;
+        color: ${pal.accText || '#000000'} !important;
+        border-color: ${pal.acc} !important;
+      }
+      .badge, .pill, .stat-chip b, .calc-res {
+        color: ${pal.acc} !important;
+      }
+    `;
+    if (lastRollMeta) lastRollMeta.paletteId = pal.id;
+    const metaEl = $('#remixMeta');
+    if (metaEl) metaEl.textContent = `· Colors: ${pal.name}`;
+    if (!S.live) commit();
+    else if (S.dir && S.page) api.writePage(S.dir, S.page, serialize());
+  }
+
+  async function swapFontsOnCurrentPage() {
+    const cat = await ensureCatalog();
+    if (!cat || !cat.fonts.length) return;
+    curFontIdx = (curFontIdx + 1) % cat.fonts.length;
+    const fnt = cat.fonts[curFontIdx];
+    applyFontPairToAnyPage(fnt);
+    toast(`🔤 Applied Fonts: ${fnt.name}`);
+  }
+
+  async function swapColorsOnCurrentPage() {
+    const cat = await ensureCatalog();
+    if (!cat || !cat.palettes.length) return;
+    curPalIdx = (curPalIdx + 1) % cat.palettes.length;
+    const pal = cat.palettes[curPalIdx];
+    applyPaletteToAnyPage(pal);
+    toast(`🎨 Applied Colors: ${pal.name}`);
+  }
+
+  function resetOriginalLookOnCurrentPage() {
+    if (!doc) return;
+    ['__mh_font_override', '__mh_gfont_override', '__mh_pal_override'].forEach((id) => {
+      const el = doc.getElementById(id);
+      if (el) el.remove();
+    });
+    if (!S.live) commit();
+    else if (S.dir && S.page) api.writePage(S.dir, S.page, serialize());
+    toast('↺ Restored original page fonts & colors');
+  }
+
+  function stealCurrentSiteVibe() {
+    if (!doc || !doc.body) return;
+    const win = doc.defaultView;
+    const bComp = win.getComputedStyle(doc.body);
+    const bg = rgbToHex(bComp.backgroundColor) || '#0f172a';
+    const text = rgbToHex(bComp.color) || '#f8fafc';
+
+    const surfEl = doc.querySelector('header, section, article, .card, .inner, nav, aside') || doc.body;
+    const sComp = win.getComputedStyle(surfEl);
+    const surf = rgbToHex(sComp.backgroundColor) || bg;
+    const border = rgbToHex(sComp.borderColor) || '#334155';
+
+    const pEl = doc.querySelector('p, small, td, li') || doc.body;
+    const muted = rgbToHex(win.getComputedStyle(pEl).color) || text;
+
+    const accEl = doc.querySelector('button.acc, .btn.acc, .button.primary, button, a.btn, .badge, h1') || doc.body;
+    const aComp = win.getComputedStyle(accEl);
+    const acc = rgbToHex(aComp.backgroundColor) || rgbToHex(aComp.color) || '#6366f1';
+    const accText = rgbToHex(aComp.color) || '#ffffff';
+
+    const hEl = doc.querySelector('h1, h2, h3') || doc.body;
+    const headFont = win.getComputedStyle(hEl).fontFamily.split(',')[0].replace(/['"]/g, '').trim() || 'Space Grotesk';
+    const bodyFont = bComp.fontFamily.split(',')[0].replace(/['"]/g, '').trim() || 'Inter';
+
+    const vibeName = `Stolen from ${S.name || doc.title || 'Site'}`;
+    const newVibe = {
+      name: vibeName,
+      bg,
+      surf,
+      surf2: surf,
+      text,
+      muted,
+      acc,
+      accText: accText === acc ? bg : accText,
+      border,
+      head: headFont,
+      body: bodyFont,
+      mono: 'JetBrains Mono',
+      gurl: `${encodeURIComponent(headFont)}:wght@600;800&family=${encodeURIComponent(bodyFont)}:wght@400;600`
+    };
+
+    const list = getSavedVibes().filter((v) => v.name !== vibeName);
+    list.unshift(newVibe);
+    saveVibesList(list.slice(0, 20));
+    curVibeIdx = 0;
+    playEditorSynthTone('bell');
+    toast(`🪄 Stole Vibe "${vibeName}" (${headFont} + ${bg} / ${acc})! Open any site & click "✨ Apply Stolen Vibe".`);
+  }
+
+  function applyNextStolenVibe() {
+    if (!doc) return;
+    const vibes = getSavedVibes();
+    if (!vibes.length) return;
+    curVibeIdx = (curVibeIdx + 1) % vibes.length;
+    const v = vibes[curVibeIdx];
+    applyPaletteToAnyPage(v);
+    applyFontPairToAnyPage(v);
+    const metaEl = $('#remixMeta');
+    if (metaEl) metaEl.textContent = `· 🪄 Vibe: ${v.name} (${v.head} + ${v.body})`;
+    playEditorSynthTone('pad');
+    toast(`🪄 Applied Vibe: ${v.name}`);
+  }
+
+  function toggleFullPageMode(force) {
+    const isNow = force !== undefined ? !!force : !document.body.classList.contains('fullpage-mode');
+    document.body.classList.toggle('fullpage-mode', isNow);
+    const hud = $('#fullpageHud');
+    if (hud) hud.hidden = !isNow;
+    if (isNow) {
+      if (!S.live) {
+        S.live = true;
+        $('#bPreview').classList.add('on');
+        $('#bPreview').textContent = '✎ Edit Page';
+        renderHtml(serialize(), true);
+      }
+      toast('🖥 Full Page Mode — Press Esc or click "✎ Back to Editor" in bottom-right to exit');
+    } else {
+      if (S.live) {
+        S.live = false;
+        $('#bPreview').classList.remove('on');
+        $('#bPreview').textContent = '▶ Test App';
+        renderHtml(S.hist[S.hi] || serialize(), false);
+      }
+      toast('✎ Returned to Visual Editor');
+    }
+  }
+
+  // Bind Topbar, Welcome, Remix Bar & Full Page HUD buttons
   if ($('#bRollSite')) $('#bRollSite').onclick = () => rollFreshSite();
   if ($('#wRollFresh')) $('#wRollFresh').onclick = () => rollFreshSite();
   if ($('#bCommunity')) $('#bCommunity').onclick = () => openCommunityHub();
   if ($('#wOpenCommunity')) $('#wOpenCommunity').onclick = () => openCommunityHub();
+  if ($('#bFullPage')) $('#bFullPage').onclick = () => toggleFullPageMode();
+  if ($('#remixFullPageBtn')) $('#remixFullPageBtn').onclick = () => toggleFullPageMode(true);
+
+  if ($('#fpExitBtn')) $('#fpExitBtn').onclick = () => toggleFullPageMode(false);
+  if ($('#fpFontBtn')) $('#fpFontBtn').onclick = () => swapFontsOnCurrentPage();
+  if ($('#fpColorBtn')) $('#fpColorBtn').onclick = () => swapColorsOnCurrentPage();
+  if ($('#fpVibeBtn')) $('#fpVibeBtn').onclick = () => applyNextStolenVibe();
+  if ($('#fpRollBtn')) $('#fpRollBtn').onclick = () => rollFreshSite();
+  if ($('#fpOsFsBtn')) $('#fpOsFsBtn').onclick = () => api.fullscreen();
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'F5') {
+      e.preventDefault();
+      toggleFullPageMode();
+    } else if (e.key === 'Escape' && document.body.classList.contains('fullpage-mode')) {
+      e.preventDefault();
+      toggleFullPageMode(false);
+    }
+  });
 
   if ($('#remixRollBtn')) $('#remixRollBtn').onclick = () => rollFreshSite();
   if ($('#remixArchBtn')) $('#remixArchBtn').onclick = async () => {
@@ -2001,30 +2499,11 @@
       fontPairId: lastRollMeta && lastRollMeta.fontPairId
     });
   };
-  if ($('#remixFontBtn')) $('#remixFontBtn').onclick = async () => {
-    const cat = await ensureCatalog();
-    if (!cat || !cat.fonts.length) return;
-    const curIdx = cat.fonts.findIndex((f) => f.id === (lastRollMeta && lastRollMeta.fontPairId));
-    const next = cat.fonts[(curIdx + 1) % cat.fonts.length];
-    await rollFreshSite({
-      archetypeId: lastRollMeta && lastRollMeta.archetypeId,
-      paletteId: lastRollMeta && lastRollMeta.paletteId,
-      fontPairId: next.id
-    });
-  };
-  if ($('#remixPalBtn')) $('#remixPalBtn').onclick = async () => {
-    const cat = await ensureCatalog();
-    if (!cat || !cat.palettes.length) return;
-    const curIdx = cat.palettes.findIndex((p) => p.id === (lastRollMeta && lastRollMeta.paletteId));
-    const next = cat.palettes[(curIdx + 1) % cat.palettes.length];
-    await rollFreshSite({
-      archetypeId: lastRollMeta && lastRollMeta.archetypeId,
-      paletteId: next.id,
-      fontPairId: lastRollMeta && lastRollMeta.fontPairId
-    });
-  };
-  if ($('#remixLiveWebBtn')) $('#remixLiveWebBtn').onclick = () => rollRandomLiveTemplate();
-  if ($('#remixHubBtn')) $('#remixHubBtn').onclick = () => openCommunityHub();
+  if ($('#remixFontBtn')) $('#remixFontBtn').onclick = () => swapFontsOnCurrentPage();
+  if ($('#remixPalBtn')) $('#remixPalBtn').onclick = () => swapColorsOnCurrentPage();
+  if ($('#remixStealVibeBtn')) $('#remixStealVibeBtn').onclick = () => stealCurrentSiteVibe();
+  if ($('#remixApplyVibeBtn')) $('#remixApplyVibeBtn').onclick = () => applyNextStolenVibe();
+  if ($('#remixResetBtn')) $('#remixResetBtn').onclick = () => resetOriginalLookOnCurrentPage();
   if ($('#remixCloseBtn')) $('#remixCloseBtn').onclick = () => ($('#remixBar').hidden = true);
 
   async function openCommunityHub(initialTab) {
