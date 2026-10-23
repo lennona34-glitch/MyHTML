@@ -1,6 +1,31 @@
 // Built-in standalone utility apps & universal HTML/WASM App Importer helpers
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+function getSharedAppsDir(projectDir) {
+  const sitesRoot = projectDir ? path.dirname(path.resolve(projectDir)) : path.join(os.homedir(), 'Documents', 'MyHTML Sites');
+  const shared = path.join(sitesRoot, '_Shared_Hub_Apps');
+  try { fs.mkdirSync(shared, { recursive: true }); } catch {}
+  return shared;
+}
+
+function mirrorAppToSharedLibrary(targetDir, projectDir) {
+  try {
+    if (!targetDir || !fs.existsSync(targetDir)) return;
+    const slug = path.basename(targetDir);
+    const sharedBase = getSharedAppsDir(projectDir);
+    const sharedDest = path.join(sharedBase, slug);
+    if (path.resolve(targetDir).toLowerCase() === path.resolve(sharedDest).toLowerCase()) return;
+    if (fs.existsSync(sharedDest)) {
+      try { fs.rmSync(sharedDest, { recursive: true, force: true }); } catch {}
+    }
+    fs.mkdirSync(sharedDest, { recursive: true });
+    fs.cpSync(targetDir, sharedDest, { recursive: true, force: true });
+  } catch (e) {
+    console.warn('Could not mirror app to shared hub library:', e.message);
+  }
+}
 
 const safeSlug = (str) =>
   String(str || '')
@@ -138,6 +163,7 @@ function importAppFromDir(srcDir, projectDir, entryHtmlName = 'index.html', pref
   }
 
   normalizeAppDirectory(targetDir);
+  mirrorAppToSharedLibrary(targetDir, projectDir);
 
   const finalSlug = path.basename(targetDir);
   const relPath = `assets/apps/${finalSlug}/index.html`;
@@ -213,6 +239,7 @@ function importSingleHtmlFile(htmlFilePath, projectDir) {
   }
 
   normalizeAppDirectory(targetDir);
+  mirrorAppToSharedLibrary(targetDir, projectDir);
 
   return {
     success: true,
@@ -647,6 +674,139 @@ function ensureStarterApps(projectDir) {
       fs.writeFileSync(idx, app.html, 'utf8');
     }
   }
+
+  // 3. Sync any user-imported .html apps from the persistent _Shared_Hub_Apps library!
+  try {
+    const sharedBase = getSharedAppsDir(projectDir);
+    if (fs.existsSync(sharedBase)) {
+      const sharedEntries = fs.readdirSync(sharedBase, { withFileTypes: true });
+      for (const ent of sharedEntries) {
+        if (!ent.isDirectory()) continue;
+        const srcAppDir = path.join(sharedBase, ent.name);
+        const destAppDir = path.join(appsBase, ent.name);
+        if (fs.existsSync(path.join(srcAppDir, 'index.html')) && !fs.existsSync(path.join(destAppDir, 'index.html'))) {
+          fs.mkdirSync(destAppDir, { recursive: true });
+          fs.cpSync(srcAppDir, destAppDir, { recursive: true, force: true });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Shared hub apps sync warning:', e.message);
+  }
+}
+
+/**
+ * Applies (or resets) universal Font & Color overrides directly into the .html files
+ * of apps inside <projectDir>/assets/apps/ (and mirrors to _Shared_Hub_Apps).
+ */
+function styleHtmlAppsInProject(projectDir, { relPath, gfontUrl, fontCss, palCss, reset } = {}) {
+  if (!projectDir) return false;
+  const appsBase = path.join(projectDir, 'assets', 'apps');
+  if (!fs.existsSync(appsBase)) return false;
+
+  const targetFiles = [];
+  if (relPath) {
+    const full = path.join(projectDir, relPath.replace(/\//g, path.sep));
+    if (fs.existsSync(full)) targetFiles.push(full);
+  }
+  // Also apply to all installed apps in this project so switching apps in the Hub keeps the same vibe!
+  try {
+    for (const ent of fs.readdirSync(appsBase, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const idx = path.join(appsBase, ent.name, 'index.html');
+      if (fs.existsSync(idx) && !targetFiles.includes(idx)) targetFiles.push(idx);
+    }
+  } catch {}
+
+  for (const file of targetFiles) {
+    try {
+      let html = fs.readFileSync(file, 'utf8');
+      // Strip previous overrides first
+      html = html
+        .replace(/<link[^>]*id=["']__mh_gfont_override["'][^>]*>\s*/gi, '')
+        .replace(/<style[^>]*id=["']__mh_font_override["'][^>]*>[\s\S]*?<\/style>\s*/gi, '')
+        .replace(/<style[^>]*id=["']__mh_pal_override["'][^>]*>[\s\S]*?<\/style>\s*/gi, '');
+
+      if (!reset) {
+        let inject = '';
+        if (gfontUrl) {
+          inject += `<link id="__mh_gfont_override" rel="stylesheet" href="${gfontUrl}">\n`;
+        }
+        if (fontCss) {
+          inject += `<style id="__mh_font_override">${fontCss}</style>\n`;
+        }
+        if (palCss) {
+          inject += `<style id="__mh_pal_override">${palCss}</style>\n`;
+        }
+        if (inject) {
+          if (/<\/head>/i.test(html)) {
+            html = html.replace(/<\/head>/i, `${inject}</head>`);
+          } else if (/<body[^>]*>/i.test(html)) {
+            html = html.replace(/<body[^>]*>/i, (m) => `${inject}${m}`);
+          } else {
+            html = inject + html;
+          }
+        }
+      }
+      fs.writeFileSync(file, html, 'utf8');
+      mirrorAppToSharedLibrary(path.dirname(file), projectDir);
+    } catch {}
+  }
+  return true;
+}
+
+/**
+ * Creates or updates a standalone .html app inside <projectDir>/assets/apps/<slug>/index.html
+ * and mirrors it to the persistent _Shared_Hub_Apps library.
+ */
+function saveCustomHtmlApp(projectDir, { title, slug, html, icon }) {
+  if (!projectDir || !html) return null;
+  const cleanTitle = (title || extractTitleFromHtml(html, 'Custom HTML App')).trim();
+  const finalSlug = safeSlug(slug || cleanTitle);
+  const appsBase = path.join(projectDir, 'assets', 'apps');
+  const targetDir = path.join(appsBase, finalSlug);
+  fs.mkdirSync(targetDir, { recursive: true });
+  let finalHtml = html;
+  if (!/<title[^>]*>/i.test(finalHtml) && /<head[^>]*>/i.test(finalHtml)) {
+    finalHtml = finalHtml.replace(/<head[^>]*>/i, (m) => `${m}\n<title>${cleanTitle}</title>`);
+  }
+  fs.writeFileSync(path.join(targetDir, 'index.html'), finalHtml, 'utf8');
+  normalizeAppDirectory(targetDir);
+  mirrorAppToSharedLibrary(targetDir, projectDir);
+  return {
+    success: true,
+    name: finalSlug,
+    slug: finalSlug,
+    title: cleanTitle,
+    icon: icon || guessIcon(cleanTitle, finalSlug),
+    relPath: `assets/apps/${finalSlug}/index.html`,
+    fullDir: targetDir
+  };
+}
+
+function readHtmlAppCode(projectDir, relPath) {
+  if (!projectDir || !relPath) return '';
+  const full = path.join(projectDir, relPath.replace(/\//g, path.sep));
+  if (!fs.existsSync(full)) return '';
+  return fs.readFileSync(full, 'utf8');
+}
+
+function deleteHtmlApp(projectDir, relPath) {
+  if (!projectDir || !relPath) return false;
+  const full = path.join(projectDir, relPath.replace(/\//g, path.sep));
+  const appDir = path.dirname(full);
+  const slug = path.basename(appDir);
+  // Don't delete built-in starter apps from disk unless it's a user app, or remove from shared library too
+  try {
+    if (!BUILTIN_APPS[slug] && fs.existsSync(appDir) && appDir.includes(path.join('assets', 'apps'))) {
+      fs.rmSync(appDir, { recursive: true, force: true });
+    }
+    const sharedDir = path.join(getSharedAppsDir(projectDir), slug);
+    if (!BUILTIN_APPS[slug] && fs.existsSync(sharedDir)) {
+      fs.rmSync(sharedDir, { recursive: true, force: true });
+    }
+  } catch {}
+  return true;
 }
 
 function listProjectApps(projectDir) {
@@ -698,5 +858,10 @@ module.exports = {
   importBulkAppsFromFolder,
   ensureStarterApps,
   listProjectApps,
-  guessIcon
+  guessIcon,
+  mirrorAppToSharedLibrary,
+  styleHtmlAppsInProject,
+  saveCustomHtmlApp,
+  readHtmlAppCode,
+  deleteHtmlApp
 };

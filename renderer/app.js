@@ -335,9 +335,7 @@
     html = html.replace(/<base\b[^>]*>/gi, '');
     const inject = `<base id="__mh_base" href="${S.base}">` + (live ? '' : `<style id="__mh_style">${BASE_EDIT_CSS}</style>`);
     html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + inject) : inject + html;
-    frame.setAttribute('sandbox', live
-      ? 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads'
-      : 'allow-same-origin');
+    frame.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads');
     frame.onload = () => {
       doc = frame.contentDocument;
       if (!live) {
@@ -346,8 +344,76 @@
       } else {
         attachLiveBridge();
       }
+      syncAllHubsInDoc();
+      bindNestedAppFrames();
     };
     frame.srcdoc = html;
+  }
+
+  async function syncAllHubsInDoc() {
+    if (!doc || !S.dir) return;
+    const hubs = [...doc.querySelectorAll('.myhtml-app-hub')];
+    if (!hubs.length) return;
+    let diskApps = [];
+    try { diskApps = (await api.listApps(S.dir)) || []; } catch {}
+
+    for (const hub of hubs) {
+      // Ensure the new topbar & stagebar buttons exist even on older saved Hub pages
+      const topActions = hub.querySelector('.myhtml-hub-topbar > div:last-child');
+      if (topActions && !topActions.querySelector('.myhtml-hub-btn-create')) {
+        const testB = topActions.querySelector('.myhtml-app-btn-test');
+        const createB = doc.createElement('button');
+        createB.type = 'button';
+        createB.className = 'myhtml-hub-btn-create';
+        createB.style.cssText = 'background:#ec4899;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;';
+        createB.title = 'Create a brand-new standalone .html app or paste HTML code right into the Hub!';
+        createB.textContent = '✨ + New .html App';
+        if (testB) topActions.insertBefore(createB, testB);
+        else topActions.appendChild(createB);
+      }
+      const stageActions = hub.querySelector('.myhtml-hub-stagebar > div:last-child');
+      if (stageActions && !stageActions.querySelector('.myhtml-hub-edit-app')) {
+        const editB = doc.createElement('button');
+        editB.type = 'button';
+        editB.className = 'myhtml-hub-edit-app';
+        editB.style.cssText = 'background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;';
+        editB.title = 'View or edit the HTML code of this active app';
+        editB.textContent = '✎ Edit App .html';
+        stageActions.insertBefore(editB, stageActions.firstChild);
+      }
+      if (stageActions && !stageActions.querySelector('.myhtml-hub-remove-app')) {
+        const popA = stageActions.querySelector('.myhtml-hub-pop');
+        const remB = doc.createElement('button');
+        remB.type = 'button';
+        remB.className = 'myhtml-hub-remove-app';
+        remB.style.cssText = 'background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;';
+        remB.title = 'Remove this app from the Hub';
+        remB.textContent = '✕ Remove';
+        if (popA) stageActions.insertBefore(remB, popA);
+        else stageActions.appendChild(remB);
+      }
+
+      if (!diskApps.length) continue;
+      const removedRaw = (hub.getAttribute('data-removed-apps') || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const existing = getHubApps(hub);
+      let changed = false;
+      for (const da of diskApps) {
+        if (removedRaw.includes(da.relPath)) continue;
+        if (!existing.some((x) => x.src === da.relPath)) {
+          existing.push({
+            title: da.title,
+            src: da.relPath,
+            icon: da.icon || '📦',
+            active: false
+          });
+          changed = true;
+        }
+      }
+      if (changed) {
+        const activeIdx = Math.max(0, existing.findIndex((a) => a.active));
+        setHubApps(hub, existing, activeIdx, true);
+      }
+    }
   }
 
   function serialize() {
@@ -369,7 +435,7 @@
     return dt + '\n' + c.outerHTML + '\n';
   }
 
-  function commitFromLiveOrEdit() {
+  function commitFromLiveOrEdit(skipLiveReload = false) {
     if (!doc) return;
     const snap = serialize();
     if (snap !== S.hist[S.hi]) {
@@ -377,16 +443,22 @@
       S.hist.push(snap);
       if (S.hist.length > 80) S.hist.shift();
       S.hi = S.hist.length - 1;
+    }
+    if (S.dir && S.page) {
+      api.writePage(S.dir, S.page, snap);
+      S.dirty = false;
+    } else {
       S.dirty = true;
     }
     updateUi();
-    if (S.live) {
-      renderHtml(snap, true);
-    } else {
+    if (S.live && !skipLiveReload) {
+      bindNestedAppFrames();
+    } else if (!S.live) {
       renderLayers();
       renderBonesPanel();
       renderInspector();
       renderComputed();
+      bindNestedAppFrames();
     }
   }
 
@@ -435,7 +507,7 @@
     }));
   }
 
-  function setHubApps(hub, apps, activeIndex = 0) {
+  function setHubApps(hub, apps, activeIndex = 0, skipLiveReload = false) {
     if (!hub) return;
     const nav = hub.querySelector('.myhtml-hub-nav');
     if (!nav) return;
@@ -460,7 +532,7 @@
     const pop = hub.querySelector('.myhtml-hub-pop');
     if (cur) {
       const curSrc = cur.src || cur.relPath || 'about:blank';
-      if (fr) fr.setAttribute('src', curSrc);
+      if (fr && fr.getAttribute('src') !== curSrc) fr.setAttribute('src', curSrc);
       if (actTitle) actTitle.textContent = `${cur.icon || '📦'} ${cur.title}`;
       if (pop) pop.setAttribute('href', curSrc);
     } else {
@@ -470,8 +542,8 @@
 
     const gridItems = hub.querySelector('.myhtml-hub-grid-items');
     if (gridItems) {
-      gridItems.innerHTML = apps.map((a) => `
-        <div class="myhtml-hub-card" style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:18px;cursor:pointer;display:flex;flex-direction:column;gap:8px;">
+      gridItems.innerHTML = apps.map((a, i) => `
+        <div class="myhtml-hub-card" data-hub-idx="${i}" style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:18px;cursor:pointer;display:flex;flex-direction:column;gap:8px;">
           <div style="font-size:28px;">${esc(a.icon || '📦')}</div>
           <div style="font-weight:700;font-size:14px;color:#fff;">${esc(a.title)}</div>
           <div style="font-size:11px;color:#34d399;font-weight:600;">▶ Launch in Screen</div>
@@ -479,7 +551,14 @@
       `).join('');
     }
 
-    commitFromLiveOrEdit();
+    commitFromLiveOrEdit(skipLiveReload);
+  }
+
+  function unmarkRemovedFromHub(hub, relPath) {
+    if (!hub || !relPath) return;
+    const list = (hub.getAttribute('data-removed-apps') || '').split(',').map((s) => s.trim()).filter((s) => s && s !== relPath);
+    if (list.length) hub.setAttribute('data-removed-apps', list.join(','));
+    else hub.removeAttribute('data-removed-apps');
   }
 
   async function addAppsToHub(hub, mode = 'folder') {
@@ -506,6 +585,7 @@
       let activeIdx = existing.length;
 
       for (const item of incoming) {
+        unmarkRemovedFromHub(hub, item.relPath);
         const foundIdx = existing.findIndex((x) => x.src === item.relPath);
         const entry = {
           title: item.title,
@@ -521,7 +601,7 @@
         }
       }
 
-      setHubApps(hub, existing, activeIdx);
+      setHubApps(hub, existing, activeIdx, true);
       if (!S.live) select(hub);
       refreshFontsAndAssets();
 
@@ -540,6 +620,7 @@
     // If there is an App Hub on the page, add it to the Hub and switch to it!
     const hub = (S.sel && S.sel.closest && S.sel.closest('.myhtml-app-hub')) || doc.querySelector('.myhtml-app-hub');
     if (hub) {
+      unmarkRemovedFromHub(hub, app.relPath);
       const existing = getHubApps(hub);
       let idx = existing.findIndex((x) => x.src === app.relPath);
       if (idx >= 0) {
@@ -548,7 +629,7 @@
         existing.push({ title: app.title, src: app.relPath, icon: app.icon || '📦' });
         idx = existing.length - 1;
       }
-      setHubApps(hub, existing, idx);
+      setHubApps(hub, existing, idx, true);
       if (!S.live) select(hub);
       hub.scrollIntoView({ behavior: 'smooth', block: 'center' });
       toast(`🧰 Added "${app.title}" into your Single-Screen App Hub!`);
@@ -782,6 +863,105 @@
       addAppsToHub(hubFileBtn.closest('.myhtml-app-hub'), 'file');
       return true;
     }
+    const hubCreateBtn = t.closest('.myhtml-hub-btn-create');
+    if (hubCreateBtn) {
+      e.preventDefault();
+      openHtmlAppStudioModal(hubCreateBtn.closest('.myhtml-app-hub'), null);
+      return true;
+    }
+    const hubEditBtn = t.closest('.myhtml-hub-edit-app');
+    if (hubEditBtn) {
+      e.preventDefault();
+      const hub = hubEditBtn.closest('.myhtml-app-hub');
+      if (hub) {
+        const apps = getHubApps(hub);
+        const cur = apps.find((a) => a.active) || apps[0];
+        if (cur) openHtmlAppStudioModal(hub, cur);
+        else openHtmlAppStudioModal(hub, null);
+      }
+      return true;
+    }
+    const hubRemoveBtn = t.closest('.myhtml-hub-remove-app');
+    if (hubRemoveBtn) {
+      e.preventDefault();
+      const hub = hubRemoveBtn.closest('.myhtml-app-hub');
+      if (hub) {
+        const apps = getHubApps(hub);
+        const activeIdx = Math.max(0, apps.findIndex((a) => a.active));
+        const removed = apps[activeIdx];
+        if (removed) {
+          const prevRem = (hub.getAttribute('data-removed-apps') || '').split(',').map((s) => s.trim()).filter(Boolean);
+          if (!prevRem.includes(removed.src)) prevRem.push(removed.src);
+          hub.setAttribute('data-removed-apps', prevRem.join(','));
+          apps.splice(activeIdx, 1);
+          setHubApps(hub, apps, Math.max(0, activeIdx - 1), true);
+          toast(`✕ Removed "${removed.title}" from Hub`);
+        }
+      }
+      return true;
+    }
+    const hubReloadBtn = t.closest('.myhtml-hub-reload');
+    if (hubReloadBtn) {
+      e.preventDefault();
+      const hub = hubReloadBtn.closest('.myhtml-app-hub');
+      const fr = hub && hub.querySelector('.myhtml-hub-frame');
+      if (fr && fr.contentWindow) {
+        try { fr.contentWindow.location.reload(); } catch { fr.src = fr.src; }
+        toast('↻ Reloaded app');
+      }
+      return true;
+    }
+    const hubItem = t.closest('.myhtml-hub-item');
+    if (hubItem) {
+      e.preventDefault();
+      const hub = hubItem.closest('.myhtml-app-hub');
+      if (hub) {
+        const gridWrap = hub.querySelector('.myhtml-hub-grid');
+        if (gridWrap) gridWrap.style.display = 'none';
+        const allBtns = [...hub.querySelectorAll('.myhtml-hub-nav .myhtml-hub-item')];
+        const idx = allBtns.indexOf(hubItem);
+        setHubApps(hub, getHubApps(hub), idx >= 0 ? idx : 0, true);
+        if (!S.live) select(hub);
+        return true;
+      }
+    }
+    const hubCard = t.closest('.myhtml-hub-card');
+    if (hubCard) {
+      e.preventDefault();
+      const hub = hubCard.closest('.myhtml-app-hub');
+      if (hub) {
+        const gridWrap = hub.querySelector('.myhtml-hub-grid');
+        if (gridWrap) gridWrap.style.display = 'none';
+        hub.querySelectorAll('.myhtml-hub-view-btn').forEach((b) => {
+          const on = b.getAttribute('data-hub-view') === 'dock';
+          b.style.background = on ? '#334155' : '#1e293b';
+          b.style.color = on ? '#fff' : '#94a3b8';
+        });
+        const allCards = [...hub.querySelectorAll('.myhtml-hub-grid-items .myhtml-hub-card')];
+        const idx = allCards.indexOf(hubCard);
+        setHubApps(hub, getHubApps(hub), idx >= 0 ? idx : 0, true);
+        if (!S.live) select(hub);
+        return true;
+      }
+    }
+    const viewBtn = t.closest('.myhtml-hub-view-btn');
+    if (viewBtn) {
+      e.preventDefault();
+      const hub = viewBtn.closest('.myhtml-app-hub');
+      const mode = viewBtn.getAttribute('data-hub-view');
+      if (hub) {
+        const gridWrap = hub.querySelector('.myhtml-hub-grid');
+        if (gridWrap) gridWrap.style.display = mode === 'grid' ? 'block' : 'none';
+        hub.querySelectorAll('.myhtml-hub-view-btn').forEach((b) => {
+          const on = b.getAttribute('data-hub-view') === mode;
+          b.style.background = on ? '#334155' : '#1e293b';
+          b.style.color = on ? '#fff' : '#94a3b8';
+        });
+        setHubApps(hub, getHubApps(hub), Math.max(0, getHubApps(hub).findIndex(a => a.active)), true);
+        if (!S.live) select(hub);
+        return true;
+      }
+    }
 
     const pickBtn = t.closest('.myhtml-app-btn-pick');
     if (pickBtn) {
@@ -845,37 +1025,6 @@
         select(tplBtn);
         runEditorTemplateButton(tplBtn);
         return true;
-      }
-
-      const hubItem = t.closest('.myhtml-hub-item');
-      if (hubItem) {
-        e.preventDefault();
-        const hub = hubItem.closest('.myhtml-app-hub');
-        if (hub) {
-          const allBtns = [...hub.querySelectorAll('.myhtml-hub-nav .myhtml-hub-item')];
-          const idx = allBtns.indexOf(hubItem);
-          setHubApps(hub, getHubApps(hub), idx >= 0 ? idx : 0);
-          select(hub);
-          return true;
-        }
-      }
-      const viewBtn = t.closest('.myhtml-hub-view-btn');
-      if (viewBtn) {
-        e.preventDefault();
-        const hub = viewBtn.closest('.myhtml-app-hub');
-        const mode = viewBtn.getAttribute('data-hub-view');
-        if (hub) {
-          const gridWrap = hub.querySelector('.myhtml-hub-grid');
-          if (gridWrap) gridWrap.style.display = mode === 'grid' ? 'block' : 'none';
-          hub.querySelectorAll('.myhtml-hub-view-btn').forEach((b) => {
-            const on = b.getAttribute('data-hub-view') === mode;
-            b.style.background = on ? '#334155' : '#1e293b';
-            b.style.color = on ? '#fff' : '#94a3b8';
-          });
-          setHubApps(hub, getHubApps(hub), Math.max(0, getHubApps(hub).findIndex(a => a.active)));
-          select(hub);
-          return true;
-        }
       }
     }
     return false;
@@ -1004,7 +1153,12 @@
     S.hist.push(snap);
     if (S.hist.length > 80) S.hist.shift();
     S.hi = S.hist.length - 1;
-    S.dirty = true;
+    if (S.dir && S.page) {
+      api.writePage(S.dir, S.page, snap);
+      S.dirty = false;
+    } else {
+      S.dirty = true;
+    }
     updateUi();
     renderLayers();
     renderBonesPanel();
@@ -1016,7 +1170,9 @@
     renderHtml(S.hist[i]);
     const keep = S.hist.slice(), idx = i;
     frame.addEventListener('load', () => {
-      S.hist = keep; S.hi = idx; updateUi(); renderInspector(); renderLayers(); renderBonesPanel();
+      S.hist = keep; S.hi = idx;
+      if (S.dir && S.page) { api.writePage(S.dir, S.page, S.hist[idx]); S.dirty = false; }
+      updateUi(); renderInspector(); renderLayers(); renderBonesPanel();
     }, { once: true });
   }
   $('#bUndo').onclick = () => go(S.hi - 1);
@@ -1029,14 +1185,14 @@
     document.title = `${S.page || ''}${S.dirty ? ' •' : ''} — MyHTML`;
   }
   async function save() {
-    if (!doc || S.live) return;
+    if (!doc || !S.dir || !S.page) return;
     await api.writePage(S.dir, S.page, serialize());
     S.dirty = false;
     updateUi();
     toast('Saved ✓');
   }
   async function autosave() {
-    if (S.dirty && doc && !S.live) await api.writePage(S.dir, S.page, serialize());
+    if (doc && S.dir && S.page) await api.writePage(S.dir, S.page, serialize());
     S.dirty = false;
   }
   $('#bSave').onclick = save;
@@ -1063,6 +1219,7 @@
   $('#bPreview').onclick = async () => {
     if (!S.live) {
       const html = serialize();
+      if (S.dir && S.page) await api.writePage(S.dir, S.page, html);
       S.live = true;
       $('#bPreview').textContent = '✎ Back to Editor';
       $('#bPreview').classList.add('live-on');
@@ -1070,10 +1227,12 @@
       renderHtml(html, true);
       toast('▶ Test Mode active: Mini-apps and buttons are live!');
     } else {
+      const html = serialize() || S.hist[S.hi];
+      if (S.dir && S.page && html) await api.writePage(S.dir, S.page, html);
       S.live = false;
       $('#bPreview').textContent = '▶ Test App';
       $('#bPreview').classList.remove('live-on');
-      renderHtml(S.hist[S.hi]);
+      renderHtml(html, false);
       toast('✎ Returned to Editor mode.');
     }
   };
@@ -1320,10 +1479,15 @@
       };
       $('[data-fa="body"]', card).onclick = () => {
         if (!doc) return;
-        doc.body.style.fontFamily = `'${f.family}', sans-serif`;
-        commit();
+        applyFontPairToAnyPage({
+          name: f.family,
+          head: f.family,
+          body: f.family,
+          mono: 'JetBrains Mono',
+          gurl: `${encodeURIComponent(f.family)}:wght@400;600;700`
+        });
         renderInspector();
-        toast(`Set page font: ${f.family}`);
+        toast(`Set page & Hub apps font: ${f.family}`);
       };
       $('[data-fa="css"]', card).onclick = () => {
         navigator.clipboard.writeText(f.css || `font-family: '${f.family}', sans-serif;`);
@@ -2247,8 +2411,172 @@
     localStorage.setItem('myhtml-stolen-vibes', JSON.stringify(list));
   }
 
+  let activeFontOverride = null;
+  let activePalOverride = null;
+
+  function buildFontOverrideCss(fnt) {
+    const h = fnt.head || 'sans-serif';
+    const b = fnt.body || h;
+    const m = fnt.mono || 'monospace';
+    return `
+      :root {
+        --font-head: '${h}', system-ui, sans-serif !important;
+        --font-body: '${b}', system-ui, sans-serif !important;
+        --font-mono: '${m}', monospace !important;
+      }
+      html, body, p, li, td, th, label, input, select, textarea, button, a, div, section, article, main, aside, nav, header, footer, span:not(.fa):not(.icon) {
+        font-family: '${b}', system-ui, sans-serif !important;
+      }
+      h1, h2, h3, h4, h5, h6, strong, .logo, .brand b, header b, .title, .zine-giant, .stat-chip b, .myhtml-hub-title, .myhtml-hub-active-title {
+        font-family: '${h}', system-ui, sans-serif !important;
+      }
+      code, pre, .mono, .mono-sm, .badge, .tag, .pill, .kicker, .ticker, .myhtml-hub-count {
+        font-family: '${m}', monospace !important;
+      }
+    `;
+  }
+
+  function buildPalOverrideCss(pal) {
+    return `
+      :root {
+        --bg: ${pal.bg} !important;
+        --surf: ${pal.surf} !important;
+        --surf2: ${pal.surf2 || pal.surf} !important;
+        --text: ${pal.text} !important;
+        --muted: ${pal.muted} !important;
+        --acc: ${pal.acc} !important;
+        --acc-text: ${pal.accText || '#000000'} !important;
+        --border: ${pal.border || pal.muted} !important;
+      }
+      html, body, #wrapper, #page-wrapper, main, #app, #root, .app, .myhtml-app-hub, .myhtml-hub-stage, .myhtml-hub-grid {
+        background-color: ${pal.bg} !important;
+        background: ${pal.bg} !important;
+        color: ${pal.text} !important;
+      }
+      header, nav, footer, section, article, aside, .card, .side-card, .table-card, .hero-compact, .box, .panel, .inner, .container, .wrapper, .spotlights > section, .features section, .zine-banner, .myhtml-hub-topbar, .myhtml-hub-sidebar, .myhtml-hub-stagebar, .myhtml-hub-card, fieldset, form, table {
+        background-color: ${pal.surf} !important;
+        background: ${pal.surf} !important;
+        color: ${pal.text} !important;
+        border-color: ${pal.border || pal.muted} !important;
+      }
+      th, tr:nth-child(even), .ticker, .calc-box, .stat-chip, .tag, input, select, textarea, .myhtml-hub-search {
+        background-color: ${pal.surf2 || pal.surf} !important;
+        color: ${pal.text} !important;
+        border-color: ${pal.border || pal.muted} !important;
+      }
+      h1, h2, h3, h4, h5, h6, b, strong, th, label, legend, .myhtml-hub-title, .myhtml-hub-active-title, .myhtml-hub-item, a:not(.btn):not(.button):not(.acc) {
+        color: ${pal.text} !important;
+      }
+      p, small, .muted, .sub, td, li, span {
+        color: ${pal.muted} !important;
+      }
+      button, .btn, .button, input[type="button"], input[type="submit"], .myhtml-hub-item.active {
+        background-color: ${pal.acc} !important;
+        background: ${pal.acc} !important;
+        color: ${pal.accText || '#000000'} !important;
+        border-color: ${pal.acc} !important;
+      }
+      .badge, .pill, .stat-chip b, .calc-res, .myhtml-hub-count {
+        color: ${pal.acc} !important;
+      }
+    `;
+  }
+
+  function injectOverridesIntoTargetDoc(targetDoc) {
+    if (!targetDoc || !targetDoc.head) return;
+    const gfontLink = doc && doc.getElementById('__mh_gfont_override');
+    const fontStyle = doc && doc.getElementById('__mh_font_override');
+    const palStyle = doc && doc.getElementById('__mh_pal_override');
+
+    const gHref = (activeFontOverride && activeFontOverride.gurl)
+      ? `https://fonts.googleapis.com/css2?family=${activeFontOverride.gurl}&display=swap`
+      : (gfontLink ? gfontLink.getAttribute('href') : '');
+    const fCss = activeFontOverride ? buildFontOverrideCss(activeFontOverride) : (fontStyle ? fontStyle.textContent : '');
+    const pCss = activePalOverride ? buildPalOverrideCss(activePalOverride) : (palStyle ? palStyle.textContent : '');
+
+    if (gHref) {
+      let l = targetDoc.getElementById('__mh_gfont_override');
+      if (!l) {
+        l = targetDoc.createElement('link');
+        l.id = '__mh_gfont_override';
+        l.rel = 'stylesheet';
+        targetDoc.head.appendChild(l);
+      }
+      l.href = gHref;
+    }
+    if (fCss) {
+      let s = targetDoc.getElementById('__mh_font_override');
+      if (!s) {
+        s = targetDoc.createElement('style');
+        s.id = '__mh_font_override';
+        targetDoc.head.appendChild(s);
+      }
+      s.textContent = fCss;
+    }
+    if (pCss) {
+      let p = targetDoc.getElementById('__mh_pal_override');
+      if (!p) {
+        p = targetDoc.createElement('style');
+        p.id = '__mh_pal_override';
+        targetDoc.head.appendChild(p);
+      }
+      p.textContent = pCss;
+    }
+  }
+
+  function syncOverridesToNestedAppFrames(reset = false) {
+    if (!doc) return;
+    const subFrames = [...doc.querySelectorAll('iframe.myhtml-hub-frame, iframe.myhtml-app-frame')];
+    for (const sf of subFrames) {
+      try {
+        const subDoc = sf.contentDocument;
+        if (!subDoc || !subDoc.head) continue;
+        if (reset) {
+          ['__mh_font_override', '__mh_gfont_override', '__mh_pal_override'].forEach((id) => {
+            const el = subDoc.getElementById(id);
+            if (el) el.remove();
+          });
+        } else {
+          injectOverridesIntoTargetDoc(subDoc);
+        }
+      } catch {}
+    }
+
+    // Also persist to the .html app files on disk so reloads and separate browser windows keep the Fonts & Colors!
+    if (S.dir && api.styleProjectApps) {
+      const gfontLink = doc.getElementById('__mh_gfont_override');
+      const fontStyle = doc.getElementById('__mh_font_override');
+      const palStyle = doc.getElementById('__mh_pal_override');
+      api.styleProjectApps(S.dir, {
+        gfontUrl: gfontLink ? gfontLink.getAttribute('href') : '',
+        fontCss: fontStyle ? fontStyle.textContent : '',
+        palCss: palStyle ? palStyle.textContent : '',
+        reset
+      });
+    }
+  }
+
+  function bindNestedAppFrames() {
+    if (!doc) return;
+    const subFrames = [...doc.querySelectorAll('iframe.myhtml-hub-frame, iframe.myhtml-app-frame')];
+    for (const sf of subFrames) {
+      if (!sf.dataset.mhStyleBound) {
+        sf.dataset.mhStyleBound = '1';
+        sf.addEventListener('load', () => {
+          try {
+            if (sf.contentDocument) injectOverridesIntoTargetDoc(sf.contentDocument);
+          } catch {}
+        });
+      }
+      try {
+        if (sf.contentDocument) injectOverridesIntoTargetDoc(sf.contentDocument);
+      } catch {}
+    }
+  }
+
   function applyFontPairToAnyPage(fnt) {
     if (!doc || !fnt) return;
+    activeFontOverride = fnt;
     if (fnt.gurl) {
       let link = doc.getElementById('__mh_gfont_override');
       if (!link) {
@@ -2267,23 +2595,8 @@
     }
     const h = fnt.head || 'sans-serif';
     const b = fnt.body || h;
-    const m = fnt.mono || 'monospace';
-    st.textContent = `
-      :root {
-        --font-head: '${h}', system-ui, sans-serif !important;
-        --font-body: '${b}', system-ui, sans-serif !important;
-        --font-mono: '${m}', monospace !important;
-      }
-      body, p, li, td, th, input, select, textarea, button, a, div, span:not(.fa):not(.icon) {
-        font-family: '${b}', system-ui, sans-serif !important;
-      }
-      h1, h2, h3, h4, h5, h6, .logo, .brand b, header b, .title, .zine-giant, .stat-chip b {
-        font-family: '${h}', system-ui, sans-serif !important;
-      }
-      code, pre, .mono, .mono-sm, .badge, .tag, .pill, .kicker, .ticker {
-        font-family: '${m}', monospace !important;
-      }
-    `;
+    st.textContent = buildFontOverrideCss(fnt);
+    syncOverridesToNestedAppFrames(false);
     if (lastRollMeta) lastRollMeta.fontPairId = fnt.id;
     const metaEl = $('#remixMeta');
     if (metaEl) metaEl.textContent = `· Fonts: ${fnt.name || (h + ' + ' + b)}`;
@@ -2293,52 +2606,15 @@
 
   function applyPaletteToAnyPage(pal) {
     if (!doc || !pal) return;
+    activePalOverride = pal;
     let st = doc.getElementById('__mh_pal_override');
     if (!st) {
       st = doc.createElement('style');
       st.id = '__mh_pal_override';
       doc.head.appendChild(st);
     }
-    st.textContent = `
-      :root {
-        --bg: ${pal.bg} !important;
-        --surf: ${pal.surf} !important;
-        --surf2: ${pal.surf2 || pal.surf} !important;
-        --text: ${pal.text} !important;
-        --muted: ${pal.muted} !important;
-        --acc: ${pal.acc} !important;
-        --acc-text: ${pal.accText || '#000000'} !important;
-        --border: ${pal.border || pal.muted} !important;
-      }
-      html, body, #wrapper, #page-wrapper, main {
-        background-color: ${pal.bg} !important;
-        color: ${pal.text} !important;
-      }
-      header, nav, footer, section, article, aside, .card, .side-card, .table-card, .hero-compact, .box, .panel, .inner, .spotlights > section, .features section, .zine-banner {
-        background-color: ${pal.surf} !important;
-        color: ${pal.text} !important;
-        border-color: ${pal.border || pal.muted} !important;
-      }
-      th, .ticker, .calc-box, .stat-chip, .tag {
-        background-color: ${pal.surf2 || pal.surf} !important;
-        color: ${pal.text} !important;
-        border-color: ${pal.border || pal.muted} !important;
-      }
-      h1, h2, h3, h4, h5, h6, b, strong, th, a:not(.btn):not(.button):not(.acc) {
-        color: ${pal.text} !important;
-      }
-      p, small, .muted, .sub, td, li {
-        color: ${pal.muted} !important;
-      }
-      button.acc, .btn.acc, .btn-sm.acc, .button.primary, .button.special, input[type="submit"], .btn.primary {
-        background-color: ${pal.acc} !important;
-        color: ${pal.accText || '#000000'} !important;
-        border-color: ${pal.acc} !important;
-      }
-      .badge, .pill, .stat-chip b, .calc-res {
-        color: ${pal.acc} !important;
-      }
-    `;
+    st.textContent = buildPalOverrideCss(pal);
+    syncOverridesToNestedAppFrames(false);
     if (lastRollMeta) lastRollMeta.paletteId = pal.id;
     const metaEl = $('#remixMeta');
     if (metaEl) metaEl.textContent = `· Colors: ${pal.name}`;
@@ -2352,7 +2628,7 @@
     curFontIdx = (curFontIdx + 1) % cat.fonts.length;
     const fnt = cat.fonts[curFontIdx];
     applyFontPairToAnyPage(fnt);
-    toast(`🔤 Applied Fonts: ${fnt.name}`);
+    toast(`🔤 Applied Fonts to Page & Hub Apps: ${fnt.name}`);
   }
 
   async function swapColorsOnCurrentPage() {
@@ -2361,18 +2637,21 @@
     curPalIdx = (curPalIdx + 1) % cat.palettes.length;
     const pal = cat.palettes[curPalIdx];
     applyPaletteToAnyPage(pal);
-    toast(`🎨 Applied Colors: ${pal.name}`);
+    toast(`🎨 Applied Colors to Page & Hub Apps: ${pal.name}`);
   }
 
   function resetOriginalLookOnCurrentPage() {
     if (!doc) return;
+    activeFontOverride = null;
+    activePalOverride = null;
     ['__mh_font_override', '__mh_gfont_override', '__mh_pal_override'].forEach((id) => {
       const el = doc.getElementById(id);
       if (el) el.remove();
     });
+    syncOverridesToNestedAppFrames(true);
     if (!S.live) commit();
     else if (S.dir && S.page) api.writePage(S.dir, S.page, serialize());
-    toast('↺ Restored original page fonts & colors');
+    toast('↺ Restored original page & Hub app fonts & colors');
   }
 
   function stealCurrentSiteVibe() {
@@ -2819,7 +3098,357 @@
     }
   }
 
+  /* ---------- Instant .html Mini-App Studio (Unexpected Bonus!) ---------- */
+  const HTML_MINI_APP_PRESETS = {
+    synth: {
+      title: 'Retro Synth & Drum Pad',
+      icon: '🎹',
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Retro Synth & Drum Pad</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:#0b0f19;color:#f8fafc;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:18px;}
+  .panel{background:#131b2e;border:1px solid #2dd4bf;border-radius:14px;padding:20px;width:100%;max-width:680px;box-shadow:0 16px 40px rgba(0,0,0,0.4);}
+  h2{margin:0 0 6px;font-size:20px;color:#2dd4bf;}
+  p{margin:0 0 16px;font-size:13px;color:#94a3b8;}
+  .pads{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+  .pad{padding:22px 10px;border-radius:10px;border:2px solid #334155;background:#1e293b;color:#fff;font-weight:700;font-size:14px;cursor:pointer;transition:.1s;}
+  .pad:active,.pad.on{background:#2dd4bf;color:#042f2e;border-color:#fff;transform:scale(0.97);}
+  .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;}
+  select,input{background:#0b0f19;color:#fff;border:1px solid #334155;padding:6px 10px;border-radius:6px;}
+</style>
+</head>
+<body>
+  <div class="panel">
+    <h2>🎹 Polyphonic WebAudio Synth &amp; Chiptune Pad</h2>
+    <p>Click any pad or press keys 1–8 on your keyboard to play live synthesizer notes.</p>
+    <div class="controls" style="margin-bottom:14px;">
+      <label>Waveform: <select id="wave"><option value="sawtooth">Sawtooth (Lead)</option><option value="square">Square (NES Chiptune)</option><option value="triangle">Triangle (Warm Flute)</option><option value="sine">Sine (Sub Bass)</option></select></label>
+      <label>Release: <input id="rel" type="range" min="0.1" max="1.5" step="0.1" value="0.5"></label>
+    </div>
+    <div class="pads" id="pads"></div>
+  </div>
+<script>
+  const notes = [
+    { name: 'C4 (1)', f: 261.63 }, { name: 'D4 (2)', f: 293.66 }, { name: 'E4 (3)', f: 329.63 }, { name: 'G4 (4)', f: 392.00 },
+    { name: 'A4 (5)', f: 440.00 }, { name: 'C5 (6)', f: 523.25 }, { name: 'D5 (7)', f: 587.33 }, { name: 'E5 (8)', f: 659.25 }
+  ];
+  let ctx = null;
+  function play(freq, btn) {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = document.getElementById('wave').value;
+    osc.frequency.value = freq;
+    const dur = parseFloat(document.getElementById('rel').value) || 0.5;
+    g.gain.setValueAtTime(0.18, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + dur);
+    if (btn) { btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 140); }
+  }
+  const wrap = document.getElementById('pads');
+  const btns = notes.map((n) => {
+    const b = document.createElement('button');
+    b.className = 'pad'; b.textContent = n.name;
+    b.onclick = () => play(n.f, b);
+    wrap.appendChild(b);
+    return b;
+  });
+  window.addEventListener('keydown', (e) => {
+    const idx = parseInt(e.key, 10) - 1;
+    if (idx >= 0 && idx < notes.length) play(notes[idx].f, btns[idx]);
+  });
+</script>
+</body>
+</html>`
+    },
+    notes: {
+      title: 'Sticky Notes & Scratchpad',
+      icon: '📝',
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sticky Notes & Scratchpad</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:#0f172a;color:#f8fafc;font-family:system-ui,sans-serif;}
+  .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:14px;}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid #334155;}
+  h2{margin:0;font-size:18px;}
+  textarea{width:100%;height:340px;background:#1e293b;color:#f8fafc;border:1px solid #334155;border-radius:12px;padding:16px;font-size:14px;line-height:1.6;resize:vertical;}
+  button{background:#6366f1;color:#fff;border:0;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h2>📝 Auto-Saving Scratchpad &amp; Notes</h2>
+      <div style="display:flex;gap:8px;">
+        <button id="dl">⬇ Export .txt</button>
+        <button id="clr" style="background:#ef4444;">Clear</button>
+      </div>
+    </div>
+    <textarea id="pad" placeholder="Type notes, game codes, ideas, or snippets here — automatically saved in local storage!"></textarea>
+  </div>
+<script>
+  const pad = document.getElementById('pad');
+  pad.value = localStorage.getItem('myhtml_scratchpad_v1') || '# Quick Scratchpad\\n\\n- Everything typed here saves automatically!';
+  pad.oninput = () => localStorage.setItem('myhtml_scratchpad_v1', pad.value);
+  document.getElementById('clr').onclick = () => { if(confirm('Clear notes?')){ pad.value=''; localStorage.removeItem('myhtml_scratchpad_v1'); } };
+  document.getElementById('dl').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([pad.value], {type:'text/plain'}));
+    a.download = 'notes.txt'; a.click();
+  };
+</script>
+</body>
+</html>`
+    },
+    pixel: {
+      title: '16×16 Pixel Art Maker',
+      icon: '🎨',
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>16x16 Pixel Art Maker</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px;background:#090d16;color:#f8fafc;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .bar{display:flex;gap:10px;align-items:center;background:#1e293b;padding:10px 16px;border-radius:10px;border:1px solid #334155;}
+  .grid{display:grid;grid-template-columns:repeat(16,22px);grid-template-rows:repeat(16,22px);gap:1px;background:#334155;border:2px solid #475569;}
+  .cell{background:#0f172a;cursor:crosshair;}
+  button{background:#4f46e5;color:#fff;border:0;padding:6px 12px;border-radius:6px;font-weight:600;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <strong>🎨 16×16 Sprite Studio</strong>
+    <input type="color" id="col" value="#38bdf8">
+    <button id="clear">Clear</button>
+    <button id="export">⬇ Export PNG</button>
+  </div>
+  <div class="grid" id="grid"></div>
+<script>
+  const g = document.getElementById('grid'), col = document.getElementById('col');
+  let down = false;
+  window.onmousedown = () => down = true;
+  window.onmouseup = () => down = false;
+  const cells = [];
+  for(let i=0;i<256;i++){
+    const c = document.createElement('div');
+    c.className = 'cell';
+    c.onmousedown = () => c.style.background = col.value;
+    c.onmouseenter = () => { if(down) c.style.background = col.value; };
+    g.appendChild(c); cells.push(c);
+  }
+  document.getElementById('clear').onclick = () => cells.forEach(c => c.style.background = '#0f172a');
+  document.getElementById('export').onclick = () => {
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const ctx = cv.getContext('2d');
+    cells.forEach((c, i) => {
+      ctx.fillStyle = c.style.background || '#0f172a';
+      ctx.fillRect((i%16)*16, Math.floor(i/16)*16, 16, 16);
+    });
+    const a = document.createElement('a'); a.download = 'sprite.png'; a.href = cv.toDataURL(); a.click();
+  };
+</script>
+</body>
+</html>`
+    },
+    pomodoro: {
+      title: 'Focus & Task Timer',
+      icon: '⏱️',
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Focus & Task Timer</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:30px;background:#0f172a;color:#f8fafc;font-family:system-ui,sans-serif;display:flex;justify-content:center;}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;width:100%;max-width:440px;text-align:center;}
+  .time{font-size:64px;font-weight:800;font-family:monospace;margin:16px 0;color:#38bdf8;}
+  .btns{display:flex;gap:8px;justify-content:center;}
+  button{background:#4f46e5;color:#fff;border:0;padding:10px 18px;border-radius:8px;font-weight:700;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2 style="margin:0;">⏱️ Focus Sprint Timer</h2>
+    <div class="time" id="t">25:00</div>
+    <div class="btns">
+      <button id="go">▶ Start / Pause</button>
+      <button id="rst" style="background:#334155;">↺ Reset 25m</button>
+      <button id="brk" style="background:#10b981;">☕ 5m Break</button>
+    </div>
+  </div>
+<script>
+  let sec = 1500, tmr = null;
+  const el = document.getElementById('t');
+  function fmt(){ el.textContent = String(Math.floor(sec/60)).padStart(2,'0') + ':' + String(sec%60).padStart(2,'0'); }
+  document.getElementById('go').onclick = () => {
+    if(tmr){ clearInterval(tmr); tmr = null; }
+    else tmr = setInterval(() => { if(sec>0){ sec--; fmt(); } else { clearInterval(tmr); tmr=null; } }, 1000);
+  };
+  document.getElementById('rst').onclick = () => { clearInterval(tmr); tmr=null; sec=1500; fmt(); };
+  document.getElementById('brk').onclick = () => { clearInterval(tmr); tmr=null; sec=300; fmt(); };
+</script>
+</body>
+</html>`
+    },
+    passgen: {
+      title: 'Password & Key Generator',
+      icon: '🔐',
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Password & Key Generator</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:30px;background:#0f172a;color:#f8fafc;font-family:system-ui,sans-serif;display:flex;justify-content:center;}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:24px;width:100%;max-width:520px;}
+  .out{background:#090d16;border:1px solid #334155;padding:14px;border-radius:8px;font-family:monospace;font-size:18px;color:#34d399;word-break:break-all;margin:14px 0;}
+  button{background:#4f46e5;color:#fff;border:0;padding:10px 16px;border-radius:8px;font-weight:700;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2 style="margin:0 0 8px;">🔐 High-Entropy Key &amp; Password Generator</h2>
+    <label>Length: <input type="number" id="len" value="24" min="8" max="64" style="background:#090d16;color:#fff;border:1px solid #334155;padding:4px 8px;border-radius:6px;width:70px;"></label>
+    <div class="out" id="out"></div>
+    <div style="display:flex;gap:8px;">
+      <button id="gen">🎲 Roll New Key</button>
+      <button id="cpy" style="background:#10b981;">📋 Copy</button>
+    </div>
+  </div>
+<script>
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_-+=';
+  function roll(){
+    const n = Math.max(8, Math.min(64, +document.getElementById('len').value || 24));
+    const arr = new Uint32Array(n); crypto.getRandomValues(arr);
+    document.getElementById('out').textContent = Array.from(arr, x => chars[x % chars.length]).join('');
+  }
+  document.getElementById('gen').onclick = roll;
+  document.getElementById('cpy').onclick = () => navigator.clipboard.writeText(document.getElementById('out').textContent);
+  roll();
+</script>
+</body>
+</html>`
+    },
+    blank: {
+      title: 'My Custom HTML App',
+      icon: '🚀',
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Custom HTML App</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px;background:#0f172a;color:#f8fafc;font-family:system-ui,sans-serif;}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;max-width:640px;margin:0 auto;}
+  button{background:#6366f1;color:#fff;border:0;padding:10px 18px;border-radius:8px;font-weight:600;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🚀 Custom .html Mini-App</h1>
+    <p>Paste any HTML, CSS, or JavaScript tool here and click Save!</p>
+    <button onclick="this.textContent='✓ Working Live!'">Click Me</button>
+  </div>
+</body>
+</html>`
+    }
+  };
+
+  let studioTargetHub = null;
+  let studioEditingSlug = '';
+
+  async function openHtmlAppStudioModal(hub, editApp = null) {
+    studioTargetHub = hub || (doc && doc.querySelector('.myhtml-app-hub'));
+    studioEditingSlug = '';
+    const modal = $('#htmlAppStudioModal');
+    if (!modal) return;
+
+    if (editApp && editApp.src) {
+      $('#hasTitle').textContent = `✎ Edit .html App: ${editApp.title}`;
+      $('#hasAppName').value = editApp.title || 'Web App';
+      $('#hasAppIcon').value = editApp.icon || '📦';
+      const parts = editApp.src.split('/');
+      const appIdx = parts.indexOf('apps');
+      if (appIdx >= 0 && parts[appIdx + 1]) studioEditingSlug = parts[appIdx + 1];
+      const raw = await api.readAppCode(S.dir, editApp.src);
+      $('#hasAppCode').value = raw || HTML_MINI_APP_PRESETS.blank.html;
+    } else {
+      const p = HTML_MINI_APP_PRESETS.synth;
+      $('#hasTitle').textContent = '✨ Instant .html Mini-App Studio';
+      $('#hasAppName').value = p.title;
+      $('#hasAppIcon').value = p.icon;
+      $('#hasAppCode').value = p.html;
+    }
+    modal.hidden = false;
+  }
+
+  $$('#hasPresetBar [data-preset]').forEach((btn) => {
+    btn.onclick = () => {
+      const p = HTML_MINI_APP_PRESETS[btn.dataset.preset];
+      if (!p) return;
+      studioEditingSlug = '';
+      $('#hasAppName').value = p.title;
+      $('#hasAppIcon').value = p.icon;
+      $('#hasAppCode').value = p.html;
+      toast(`⚡ Loaded "${p.title}" template — click Save & Open in Hub!`);
+    };
+  });
+
+  if ($('#hasCloseBtn')) $('#hasCloseBtn').onclick = () => ($('#htmlAppStudioModal').hidden = true);
+  if ($('#hasCancelBtn')) $('#hasCancelBtn').onclick = () => ($('#htmlAppStudioModal').hidden = true);
+  if ($('#hasSaveBtn')) {
+    $('#hasSaveBtn').onclick = async () => {
+      if (!S.dir) return;
+      const title = $('#hasAppName').value.trim() || 'Custom HTML App';
+      const icon = $('#hasAppIcon').value.trim() || '🚀';
+      const html = $('#hasAppCode').value;
+      if (!html.trim()) { toast('Please enter some HTML code'); return; }
+      const saved = await api.saveCustomApp(S.dir, {
+        title,
+        slug: studioEditingSlug || '',
+        html,
+        icon
+      });
+      if (!saved || !saved.success) { toast('Could not save app'); return; }
+      $('#htmlAppStudioModal').hidden = true;
+
+      const hub = studioTargetHub || (doc && doc.querySelector('.myhtml-app-hub'));
+      if (hub) {
+        unmarkRemovedFromHub(hub, saved.relPath);
+        const existing = getHubApps(hub);
+        let idx = existing.findIndex((x) => x.src === saved.relPath);
+        const entry = { title: saved.title, src: saved.relPath, icon: saved.icon || icon };
+        if (idx >= 0) existing[idx] = entry;
+        else { existing.push(entry); idx = existing.length - 1; }
+        setHubApps(hub, existing, idx, true);
+        const fr = hub.querySelector('.myhtml-hub-frame');
+        if (fr) {
+          fr.setAttribute('src', saved.relPath);
+          try { if (fr.contentWindow) fr.contentWindow.location.reload(); } catch {}
+        }
+      } else {
+        addAppObjectToPageOrHub(saved);
+      }
+      refreshFontsAndAssets();
+      toast(`✨ Saved "${saved.title}" into your Multi-App Hub!`);
+    };
+  }
+
   /* ---------- start app ---------- */
   initWelcome();
-  window.addEventListener('beforeunload', () => { if (S.dirty && doc && !S.live) api.writePage(S.dir, S.page, serialize()); });
+  window.addEventListener('beforeunload', () => { if (doc && S.dir && S.page) api.writePage(S.dir, S.page, serialize()); });
 })();

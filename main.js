@@ -12,7 +12,12 @@ const {
   importBulkAppsFromFolder,
   ensureStarterApps,
   listProjectApps,
-  guessIcon
+  guessIcon,
+  mirrorAppToSharedLibrary,
+  styleHtmlAppsInProject,
+  saveCustomHtmlApp,
+  readHtmlAppCode,
+  deleteHtmlApp
 } = require('./builtin-apps');
 const {
   CURATED_LIVE_TEMPLATES,
@@ -75,19 +80,44 @@ async function pickFolder(title) {
 
 ipcMain.handle('project:create', async (_, { template, customDir }) => {
   let dir = customDir;
+  const base = path.join(app.getPath('documents'), 'MyHTML Sites');
+  fs.mkdirSync(base, { recursive: true });
+
+  // Migrate any previously imported apps from older apphub-site* folders into the shared library
+  try {
+    const entries = fs.readdirSync(base, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory() || ent.name === '_Shared_Hub_Apps') continue;
+      const prevAppsDir = path.join(base, ent.name, 'assets', 'apps');
+      if (fs.existsSync(prevAppsDir)) {
+        for (const appEnt of fs.readdirSync(prevAppsDir, { withFileTypes: true })) {
+          if (appEnt.isDirectory()) {
+            mirrorAppToSharedLibrary(path.join(prevAppsDir, appEnt.name), path.join(base, ent.name));
+          }
+        }
+      }
+    }
+  } catch {}
+
   if (!dir) {
-    const base = path.join(app.getPath('documents'), 'MyHTML Sites');
-    fs.mkdirSync(base, { recursive: true });
-    let name = template === 'blank' ? 'new-site' : `${template}-site`;
-    dir = path.join(base, name);
-    let n = 2;
-    while (fs.existsSync(dir) && fs.readdirSync(dir).length) dir = path.join(base, `${name}-${n++}`);
+    if (template === 'apphub') {
+      // Reuse a single persistent Multi-App-Hub workspace so all added .html apps are always remembered!
+      dir = path.join(base, 'Multi-App-Hub');
+    } else {
+      let name = template === 'blank' ? 'clean-sheet' : `${template}-site`;
+      dir = path.join(base, name);
+      let n = 2;
+      while (fs.existsSync(dir) && fs.readdirSync(dir).length) dir = path.join(base, `${name}-${n++}`);
+    }
   }
   fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
   ensureStarterApps(dir);
-  const t = TEMPLATES[template] || TEMPLATES.blank;
-  fs.writeFileSync(path.join(dir, 'index.html'), t.html());
+  const indexFile = path.join(dir, 'index.html');
+  if (!fs.existsSync(indexFile) || template !== 'apphub') {
+    const t = TEMPLATES[template] || TEMPLATES.blank;
+    fs.writeFileSync(indexFile, t.html());
+  }
   return info(dir);
 });
 
@@ -218,6 +248,7 @@ ipcMain.handle('app:cloneUrl', async (e, { projectDir, url, customTitle }) => {
   const send = (m) => e.sender.send('clone:progress', m);
   await cloneSite(url, targetDir, { maxPages: 1, stripScripts: false }, send);
   normalizeAppDirectory(targetDir);
+  mirrorAppToSharedLibrary(targetDir, projectDir);
 
   let title = customTitle || '';
   try {
@@ -244,6 +275,22 @@ ipcMain.handle('apps:list', (_, projectDir) => {
   if (!projectDir) return [];
   ensureStarterApps(projectDir);
   return listProjectApps(projectDir);
+});
+
+ipcMain.handle('app:styleHtml', (_, projectDir, opts) => {
+  return styleHtmlAppsInProject(projectDir, opts);
+});
+
+ipcMain.handle('app:saveCustom', (_, projectDir, opts) => {
+  return saveCustomHtmlApp(projectDir, opts);
+});
+
+ipcMain.handle('app:readCode', (_, projectDir, relPath) => {
+  return readHtmlAppCode(projectDir, relPath);
+});
+
+ipcMain.handle('app:delete', (_, projectDir, relPath) => {
+  return deleteHtmlApp(projectDir, relPath);
 });
 
 ipcMain.handle('clone:run', async (e, { url, dir, maxPages, stripScripts, confirmed }) => {

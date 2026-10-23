@@ -24,6 +24,7 @@
       <button type="button" class="myhtml-hub-btn-add" style="background:#4f46e5;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add a Web App folder (like XISO dist)">📂 + App Folder</button>
       <button type="button" class="myhtml-hub-btn-bulk" style="background:#7c3aed;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Bung a whole folder of 10 or 30 apps into this hub at once">📚 + Bulk Folder</button>
       <button type="button" class="myhtml-hub-btn-file" style="background:#2563eb;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add standalone .html app files">📄 + .html File</button>
+      <button type="button" class="myhtml-hub-btn-create" style="background:#ec4899;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Create a brand-new standalone .html app or paste HTML code right into the Hub!">✨ + New .html App</button>
       <button type="button" class="myhtml-app-btn-test" style="background:#10b981;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:700;cursor:pointer;" title="Run and switch between apps live">▶ Test Live</button>
     </div>
   </div>
@@ -59,7 +60,9 @@
           <strong class="myhtml-hub-active-title" style="color:#f8fafc;">💿 XISO Tool</strong>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" class="myhtml-hub-edit-app" style="background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;" title="View or edit the HTML code of this active app">✎ Edit App .html</button>
           <button type="button" class="myhtml-hub-reload" style="background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;">↻ Reload App</button>
+          <button type="button" class="myhtml-hub-remove-app" style="background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;" title="Remove this app from the Hub">✕ Remove</button>
           <a href="assets/apps/xiso-tool/index.html" target="_blank" class="myhtml-hub-pop myhtml-app-btn-pop" style="color:#94a3b8;text-decoration:none;font-size:11.5px;padding:2px 6px;">↗ Open Separate</a>
         </div>
       </div>
@@ -586,10 +589,10 @@ ${body}
       html: () => page('All-in-One App Hub', APP_HUB_HTML.replace('margin:18px auto;max-width:1360px;height:85vh;', 'margin:0;max-width:100%;height:100vh;border-radius:0;border:0;'), 'body{background:#090d16;overflow:hidden}')
     },
     blank: {
-      name: 'Empty Page',
-      desc: 'Blank sheet ready for your ideas, blocks and mini-apps',
+      name: 'Clean Sheet',
+      desc: 'Completely empty page — zero pre-filled text or boxes',
       emoji: '📄',
-      html: () => page('Untitled', `<div style="min-height:75vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 20px;"><h1 style="font-size:32px;font-weight:700;margin:0 0 10px;color:#111827;">Your New Page</h1><p style="color:#6b7280;font-size:16px;margin:0 0 24px;max-width:480px;">Drag in blocks, a Multi-App Hub, or mini-apps from the left to start building.</p><a href="#" style="${BTN}">Action Button</a></div>`)
+      html: () => page('Clean Sheet', '', 'html,body{min-height:100vh;margin:0;padding:0;background:#ffffff;color:#111827;}')
     },
     document: {
       name: 'Clean Article',

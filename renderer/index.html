@@ -255,6 +255,53 @@
   </div>
 </div>
 
+<!-- Instant .html App Builder & Code Studio Modal -->
+<div class="modal" id="htmlAppStudioModal" hidden>
+  <div class="dialog wide" style="max-width:860px;">
+    <div class="ct-header">
+      <div>
+        <h2 id="hasTitle" style="margin:0;display:flex;align-items:center;gap:8px;">✨ Instant .html Mini-App Studio</h2>
+        <div class="muted small" style="margin-top:2px;">Create a brand-new standalone .html app from a preset, paste any HTML snippet, or edit an existing Hub app live.</div>
+      </div>
+      <button class="btn ghost" id="hasCloseBtn">✕ Close</button>
+    </div>
+
+    <div style="padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:8px;">⚡ 1-Click Starter .html Mini-Apps (Click to load template code):</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;" id="hasPresetBar">
+        <button type="button" class="btn small juice" data-preset="synth">🎹 Retro Synth &amp; Drum Pad</button>
+        <button type="button" class="btn small primary" data-preset="notes">📝 Sticky Notes &amp; Scratchpad</button>
+        <button type="button" class="btn small primary" data-preset="pixel">🎨 16×16 Pixel Art Maker</button>
+        <button type="button" class="btn small primary" data-preset="pomodoro">⏱️ Focus &amp; Task Timer</button>
+        <button type="button" class="btn small primary" data-preset="passgen">🔐 Password &amp; Key Generator</button>
+        <button type="button" class="btn small" data-preset="blank">📄 Clean Blank .html App</button>
+      </div>
+    </div>
+
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 110px;gap:10px;">
+        <label style="margin:0;">App Display Name
+          <input id="hasAppName" type="text" placeholder="e.g. My Custom Tool" spellcheck="false">
+        </label>
+        <label style="margin:0;">Icon
+          <input id="hasAppIcon" type="text" placeholder="🚀" spellcheck="false" style="text-align:center;font-size:16px;">
+        </label>
+      </div>
+      <label style="margin:0;">Standalone .html Code (Full HTML + CSS + JS)
+        <textarea id="hasAppCode" spellcheck="false" class="mono" style="height:300px;font-size:12px;line-height:1.5;background:#090d16;color:#e2e8f0;border:1px solid var(--line);border-radius:8px;padding:12px;resize:vertical;"></textarea>
+      </label>
+    </div>
+
+    <div class="ct-footer">
+      <span class="muted small">Saved automatically into your Multi-App Hub &amp; persistent app library (`assets/apps/`)</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" id="hasCancelBtn">Cancel</button>
+        <button class="btn primary" id="hasSaveBtn">💾 Save &amp; Open in Hub</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Generic ask dialog -->
 <div class="modal" id="askModal" hidden>
   <div class="dialog small">
