@@ -39,11 +39,15 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
   fs.mkdirSync(path.join(outDir, 'assets', 'fonts'), { recursive: true });
   fs.mkdirSync(path.join(outDir, 'assets', 'files'), { recursive: true });
 
-  async function get(url) {
-    const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: '*/*' }, redirect: 'follow', signal: AbortSignal.timeout(25000) });
+  async function get(url, timeoutMs = 7000) {
+    const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: '*/*' }, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return { buf: Buffer.from(await res.arrayBuffer()), type: (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase(), finalUrl: res.url };
   }
+
+  const isTrackerOrObsolete = (u) =>
+    /\.(eot)(\?.*)?$/i.test(u) ||
+    /(google-analytics\.com|googletagmanager\.com|connect\.facebook\.net|hotjar\.com|clarity\.ms|cloudflareinsights\.com|doubleclick\.net)/i.test(u);
 
   function localName(url, type, kind) {
     const u = new URL(url);
@@ -59,11 +63,13 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
 
   // Download one asset; returns its local root-relative path (or null).
   async function download(url, kind = 'file') {
+    if (isTrackerOrObsolete(url)) return null;
     if (assets.has(url)) return assets.get(url);
     let local = localName(url, '', kind);
     assets.set(url, local);
     try {
-      const { buf, type, finalUrl } = await get(url);
+      const isHeavy = /\.wasm(\?.*)?$/i.test(url) || kind === 'wasm';
+      const { buf, type, finalUrl } = await get(url, isHeavy ? 16000 : 6500);
       if (!path.extname(local)) { local += MIME_EXT[type] || ''; assets.set(url, local); }
       const file = path.join(outDir, local);
       if (kind === 'css' || type === 'text/css') {
@@ -173,7 +179,7 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
     log('Downloading page ' + pageUrl);
     let html, finalUrl;
     try {
-      const r = await get(pageUrl);
+      const r = await get(pageUrl, 12000);
       html = r.buf.toString('utf8');
       finalUrl = r.finalUrl;
     } catch (e) {
@@ -196,6 +202,7 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
     $('[integrity]').removeAttr('integrity');
     $('[crossorigin]').removeAttr('crossorigin');
     $('body').removeClass('is-preload is-loading preload loading');
+    $('#preloader, .preloader, #loader-wrapper, .page-loader, .loading-screen, .spinner-wrapper').remove();
     if (stripScripts) {
       $('noscript').each((_, el) => {
         const inner = $(el).html() || '';
@@ -204,7 +211,11 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
       $('script').remove();
       $('link[rel=modulepreload]').remove();
     } else {
-      $('script[src]').each((_, el) => set(el, 'src', 'js'));
+      $('script[src]').each((_, el) => {
+        const s = $(el).attr('src') || '';
+        if (isTrackerOrObsolete(s)) { $(el).remove(); return; }
+        set(el, 'src', 'js');
+      });
       $('link[rel=modulepreload]').each((_, el) => set(el, 'href', 'js'));
       $('script:not([src])').each((_, el) => {
         const st = $(el).html();
@@ -269,7 +280,7 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
     });
     $('form[action]').each((_, el) => { const u = abs($(el).attr('action'), finalUrl); if (u) $(el).attr('action', u); });
 
-    await mapLimit(tasks, 8, (t) => t());
+    await mapLimit(tasks, 16, (t) => t());
     // Promote .tiles > article > .image > img[src] to inline background-image so HTML5 UP tiles render without JS
     $('.tiles > article').each((_, el) => {
       const $el = $(el);
@@ -279,6 +290,10 @@ async function cloneSite(startUrl, outDir, opts = {}, log = () => {}) {
         $el.attr('style', `${curStyle}background-image: url("${imgSrc}");`);
       }
     });
+    // Ensure scroll-reveal / AOS / WOW elements are visible even in static visual editor mode
+    if ($('head').length) {
+      $('head').append('<style id="__mh_unhide">[data-aos],.aos-init,.wow,.fade-in,.reveal{opacity:1!important;visibility:visible!important;transform:none!important;}</style>');
+    }
     const out = $.html();
     fs.writeFileSync(path.join(outDir, pages.get(key)), out);
     log('Finished ' + pages.get(key));

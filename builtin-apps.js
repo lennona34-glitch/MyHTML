@@ -646,6 +646,184 @@ const BUILTIN_APPS = {
 </script>
 </body>
 </html>`
+  },
+
+  'wasm-studio': {
+    title: 'WASM Fractal & Binary Studio',
+    icon: '⚡',
+    wasmBase64: 'AGFzbQEAAAABDgJgA3x8fwF/YAJ/fwF/AwMCAAEFAwEAAQchAwptYW5kZWxicm90AAAHZm52U3RlcAABBm1lbW9yeQIACmwCWwIBfwR8AkADQCADIAJODQEgBCAEoiEGIAUgBaIhByAGIAegRAAAAAAAABBAZA0BRAAAAAAAAABAIASiIAWiIAGgIQUgBiAHoSAAoCEEIANBAWohAwwACwsgAwsOACAAIAFzQZOAgIgAbAs=',
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WASM Fractal & Binary Studio</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px;font-family:'Segoe UI',system-ui,sans-serif;background:#090d16;color:#f8fafc;}
+  .card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:18px;max-width:960px;margin:0 auto;}
+  .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #1e293b;}
+  .badge{background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.4);padding:3px 9px;border-radius:99px;font-size:11px;font-weight:700;font-family:monospace;}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;}
+  button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;padding:7px 13px;border-radius:7px;font-weight:600;font-size:12px;cursor:pointer;}
+  button.on,button.acc{background:#4f46e5;color:#fff;border-color:#6366f1;}
+  .grid{display:grid;grid-template-columns:1fr 290px;gap:16px;align-items:start;}
+  @media(max-width:760px){.grid{grid-template-columns:1fr;}}
+  canvas{width:100%;height:auto;border-radius:10px;border:1px solid #334155;background:#000;cursor:crosshair;display:block;}
+  .stat{background:#090d16;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;}
+  .stat b{display:block;font-size:15px;color:#38bdf8;font-family:monospace;margin-top:2px;}
+  pre{background:#05080f;border:1px solid #1e293b;border-radius:8px;padding:12px;font-family:Consolas,monospace;font-size:11.5px;color:#a3e635;overflow-x:auto;margin:0;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <h2 style="margin:0;font-size:18px;">⚡ Native WebAssembly (.wasm) Fractal &amp; Binary Engine</h2>
+        <span class="badge" id="wasmStatus">⚡ WASM ACTIVE</span>
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:3px;">Compiled 64-bit IEEE floating-point Mandelbrot shader + 32-bit FNV-1a ROM hasher running from real WebAssembly bytecode.</div>
+    </div>
+    <div class="tabs">
+      <button class="on" id="tabFractal">🌀 Live WASM Fractal</button>
+      <button id="tabBytecode">🔬 Inspect .wasm Binary</button>
+    </div>
+  </div>
+
+  <div id="viewFractal" class="grid">
+    <div>
+      <canvas id="cv" width="480" height="320"></canvas>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11.5px;color:#94a3b8;">
+        <span>🖱️ Click anywhere on the fractal to zoom in 2.2× · Right-click to zoom out</span>
+        <button id="resetBtn" style="padding:4px 10px;">↺ Reset Zoom</button>
+      </div>
+    </div>
+    <div>
+      <div class="stat">Execution Engine<b id="engLabel">WebAssembly (engine.wasm)</b></div>
+      <div class="stat">Render Time (480×320 pixels)<b id="timeLabel">0.0 ms</b></div>
+      <div class="stat">Coordinates (Real / Imag)<b id="coordLabel">-0.6500, 0.0000i</b></div>
+      <div class="stat">Max Iterations / Color Theme
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <input type="range" id="iterRange" min="40" max="360" value="120" style="flex:1;">
+          <button id="palBtn" class="acc" style="padding:4px 9px;">🎨 Palette</button>
+        </div>
+      </div>
+      <div class="stat">💿 Drop any File / .wasm to Hash (WASM FNV-1a)
+        <input type="file" id="fileHashInp" style="margin-top:6px;width:100%;font-size:11px;">
+        <b id="hashOut" style="font-size:12px;color:#34d399;margin-top:6px;">Ready</b>
+      </div>
+    </div>
+  </div>
+
+  <div id="viewBytecode" style="display:none;">
+    <p style="margin:0 0 10px;font-size:12.5px;color:#cbd5e1;">Below is the live compiled <b>179-byte WebAssembly binary module (<code>engine.wasm</code>)</b> powering this app, along with its exported native functions:</p>
+    <pre id="hexDump"></pre>
+  </div>
+</div>
+<script>
+  const B64 = 'AGFzbQEAAAABDgJgA3x8fwF/YAJ/fwF/AwMCAAEFAwEAAQchAwptYW5kZWxicm90AAAHZm52U3RlcAABBm1lbW9yeQIACmwCWwIBfwR8AkADQCADIAJODQEgBCAEoiEGIAUgBaIhByAGIAegRAAAAAAAABBAZA0BRAAAAAAAAABAIASiIAWiIAGgIQUgBiAHoSAAoCEEIANBAWohAwwACwsgAwsOACAAIAFzQZOAgIgAbAs=';
+  const rawBytes = Uint8Array.from(atob(B64), c => c.charCodeAt(0));
+  let wasmExports = null;
+  let cx = -0.65, cy = 0.0, scale = 2.6, palMode = 0;
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+
+  function renderFractal() {
+    if (!wasmExports) return;
+    const w = cv.width, h = cv.height;
+    const maxIter = +document.getElementById('iterRange').value || 120;
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    const t0 = performance.now();
+    const fn = wasmExports.mandelbrot;
+    let p = 0;
+    for (let py = 0; py < h; py++) {
+      const y0 = cy + (py - h / 2) * (scale / w);
+      for (let px = 0; px < w; px++) {
+        const x0 = cx + (px - w / 2) * (scale / w);
+        const it = fn(x0, y0, maxIter);
+        if (it >= maxIter) {
+          d[p] = 6; d[p+1] = 9; d[p+2] = 18; d[p+3] = 255;
+        } else {
+          const t = it / maxIter;
+          if (palMode === 0) {
+            d[p] = Math.floor(9 * (1 - t) * t * t * t * 255);
+            d[p+1] = Math.floor(15 * (1 - t) * (1 - t) * t * t * 255);
+            d[p+2] = Math.floor(8.5 * (1 - t) * (1 - t) * (1 - t) * t * 255);
+          } else if (palMode === 1) {
+            d[p] = (it * 13) & 255; d[p+1] = (it * 29) & 255; d[p+2] = (it * 7) & 255;
+          } else {
+            d[p] = Math.floor(255 * Math.sqrt(t)); d[p+1] = Math.floor(120 * t); d[p+2] = Math.floor(255 * (1 - t));
+          }
+          d[p+3] = 255;
+        }
+        p += 4;
+      }
+    }
+    const dt = (performance.now() - t0).toFixed(1);
+    ctx.putImageData(img, 0, 0);
+    document.getElementById('timeLabel').textContent = dt + ' ms (WASM f64)';
+    document.getElementById('coordLabel').textContent = cx.toFixed(5) + ', ' + cy.toFixed(5) + 'i (zoom ' + (2.6 / scale).toFixed(1) + '×)';
+  }
+
+  WebAssembly.instantiate(rawBytes).then(res => {
+    wasmExports = res.instance.exports;
+    renderFractal();
+    let hex = 'OFFSET    00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F   ASCII\\n' + '-'.repeat(72) + '\\n';
+    for (let i = 0; i < rawBytes.length; i += 16) {
+      const slice = rawBytes.slice(i, i + 16);
+      const hx = Array.from(slice, b => b.toString(16).padStart(2, '0')).join(' ').padEnd(48, ' ');
+      const asc = Array.from(slice, b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join('');
+      hex += i.toString(16).padStart(8, '0') + '  ' + hx + '  ' + asc + '\\n';
+    }
+    hex += '\\nExported WebAssembly Symbols: ' + Object.keys(wasmExports).join(', ');
+    document.getElementById('hexDump').textContent = hex;
+  });
+
+  cv.onclick = (e) => {
+    const r = cv.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (cv.width / r.width);
+    const py = (e.clientY - r.top) * (cv.height / r.height);
+    cx += (px - cv.width / 2) * (scale / cv.width);
+    cy += (py - cv.height / 2) * (scale / cv.width);
+    scale /= 2.2;
+    renderFractal();
+  };
+  cv.oncontextmenu = (e) => { e.preventDefault(); scale *= 2.2; renderFractal(); };
+  document.getElementById('resetBtn').onclick = () => { cx = -0.65; cy = 0; scale = 2.6; renderFractal(); };
+  document.getElementById('iterRange').oninput = renderFractal;
+  document.getElementById('palBtn').onclick = () => { palMode = (palMode + 1) % 3; renderFractal(); };
+
+  document.getElementById('tabFractal').onclick = () => {
+    document.getElementById('tabFractal').classList.add('on');
+    document.getElementById('tabBytecode').classList.remove('on');
+    document.getElementById('viewFractal').style.display = 'grid';
+    document.getElementById('viewBytecode').style.display = 'none';
+  };
+  document.getElementById('tabBytecode').onclick = () => {
+    document.getElementById('tabBytecode').classList.add('on');
+    document.getElementById('tabFractal').classList.remove('on');
+    document.getElementById('viewFractal').style.display = 'none';
+    document.getElementById('viewBytecode').style.display = 'block';
+  };
+
+  document.getElementById('fileHashInp').onchange = (e) => {
+    const f = e.target.files[0];
+    if (!f || !wasmExports) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const u8 = new Uint8Array(ev.target.result);
+      const t0 = performance.now();
+      let h = 2166136261 | 0;
+      const step = wasmExports.fnvStep;
+      for (let i = 0; i < u8.length; i++) h = step(h, u8[i]);
+      const hex = (h >>> 0).toString(16).toUpperCase().padStart(8, '0');
+      document.getElementById('hashOut').textContent = '0x' + hex + ' (' + u8.length.toLocaleString() + ' bytes in ' + (performance.now() - t0).toFixed(1) + 'ms)';
+    };
+    reader.readAsArrayBuffer(f);
+  };
+</script>
+</body>
+</html>`
   }
 };
 
@@ -672,6 +850,12 @@ function ensureStarterApps(projectDir) {
     if (!fs.existsSync(idx)) {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(idx, app.html, 'utf8');
+    }
+    if (app.wasmBase64) {
+      const wasmPath = path.join(dir, 'engine.wasm');
+      if (!fs.existsSync(wasmPath)) {
+        fs.writeFileSync(wasmPath, Buffer.from(app.wasmBase64, 'base64'));
+      }
     }
   }
 
@@ -851,6 +1035,79 @@ function listProjectApps(projectDir) {
   });
 }
 
+let cachedWasm4Runtime = null;
+/**
+ * Downloads a WASM-4 WebAssembly cartridge (.wasm) + runtime directly into
+ * <projectDir>/assets/apps/w4-<slug>/ so it runs 100% offline in ~0.3 seconds!
+ */
+async function importWasm4Cart(cartSlug, cartTitle, projectDir) {
+  if (!cartSlug || !projectDir) return null;
+  const cleanSlug = safeSlug('w4-' + cartSlug);
+  const appsBase = path.join(projectDir, 'assets', 'apps');
+  const targetDir = path.join(appsBase, cleanSlug);
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  if (!cachedWasm4Runtime) {
+    const [cssRes, jsRes] = await Promise.all([
+      fetch('https://wasm4.org/embed/wasm4.css', { signal: AbortSignal.timeout(8000) }),
+      fetch('https://wasm4.org/embed/wasm4.js', { signal: AbortSignal.timeout(8000) })
+    ]);
+    if (!cssRes.ok || !jsRes.ok) throw new Error('Could not download WASM-4 runtime');
+    cachedWasm4Runtime = {
+      css: await cssRes.text(),
+      js: await jsRes.text()
+    };
+  }
+
+  const wasmUrl = `https://wasm4.org/carts/${cartSlug}.wasm`;
+  const wasmRes = await fetch(wasmUrl, { signal: AbortSignal.timeout(10000) });
+  if (!wasmRes.ok) throw new Error(`Could not download ${cartSlug}.wasm (HTTP ${wasmRes.status})`);
+  const wasmBuf = Buffer.from(await wasmRes.arrayBuffer());
+
+  fs.writeFileSync(path.join(targetDir, 'wasm4.css'), cachedWasm4Runtime.css, 'utf8');
+  fs.writeFileSync(path.join(targetDir, 'wasm4.js'), cachedWasm4Runtime.js, 'utf8');
+  fs.writeFileSync(path.join(targetDir, 'cart.wasm'), wasmBuf);
+
+  const displayTitle = cartTitle || cartSlug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const indexHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${displayTitle} (WASM)</title>
+  <link rel="stylesheet" href="wasm4.css">
+  <style>
+    body { margin:0; background:#090d16; display:flex; flex-direction:column; height:100vh; overflow:hidden; font-family:system-ui,sans-serif; }
+    .w4-bar { background:#111827; color:#94a3b8; font-size:11.5px; padding:6px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1e293b; flex-shrink:0; }
+    .w4-bar b { color:#34d399; font-family:monospace; }
+    wasm4-app { flex:1; display:flex; align-items:center; justify-content:center; min-height:0; }
+  </style>
+</head>
+<body>
+  <div class="w4-bar">
+    <span>⚡ <b>cart.wasm</b> (${(wasmBuf.length / 1024).toFixed(1)} KB Native WebAssembly Cartridge)</span>
+    <span>🎮 Controls: <b>Arrow Keys</b> + <b>X / Z</b> (or Mouse) · Click screen to focus</span>
+  </div>
+  <div id="devtools"></div>
+  <script src="wasm4.js"></script>
+  <wasm4-app></wasm4-app>
+</body>
+</html>`;
+  fs.writeFileSync(path.join(targetDir, 'index.html'), indexHtml, 'utf8');
+  mirrorAppToSharedLibrary(targetDir, projectDir);
+
+  return {
+    success: true,
+    name: cleanSlug,
+    slug: cleanSlug,
+    title: displayTitle,
+    hasWasm: true,
+    icon: '🕹️',
+    relPath: `assets/apps/${cleanSlug}/index.html`,
+    fullDir: targetDir
+  };
+}
+
 module.exports = {
   normalizeAppDirectory,
   importAppFromDir,
@@ -863,5 +1120,6 @@ module.exports = {
   styleHtmlAppsInProject,
   saveCustomHtmlApp,
   readHtmlAppCode,
-  deleteHtmlApp
+  deleteHtmlApp,
+  importWasm4Cart
 };

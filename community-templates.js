@@ -166,18 +166,85 @@ async function fetchNeocitiesCommunity({ sort = 'special_sauce', tag = '', page 
 }
 
 /* ============================================================================
-   3. LIVE GITHUB COMMUNITY TEMPLATES SEARCH (Public API + Optional Token)
+   3. LIVE GITHUB COMMUNITY TEMPLATES SEARCH (Verified Live HTML Only!)
+   + 3B. FREE WASM (WebAssembly) & HTML5 APPS DIRECTORY (Curated + WASM-4 + GitHub)
    ============================================================================ */
+const BAD_DEMO_HOSTS = /(github\.com|youtu\.be|youtube\.com|npmjs\.com|crates\.io|docs\.rs|figma\.com|twitter\.com|x\.com|discord\.gg|discord\.com|medium\.com|linkedin\.com|patreon\.com|ko-fi\.com|buymeacoffee\.com|stackoverflow\.com)/i;
+
+async function verifyLiveHtmlUrl(url, { requireApp = false } = {}) {
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
+        'Accept': 'text/html,*/*'
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(3400)
+    });
+    if (r.status !== 200) return null;
+    const ct = (r.headers.get('content-type') || '').toLowerCase();
+    if (ct && !ct.includes('text/html') && !ct.includes('application/xhtml')) return null;
+    const html = await r.text();
+    if (!html || html.length < 320) return null;
+    const headChunk = html.slice(0, 1200);
+    if (/Site not found|Page not found|404 Not Found|There isn't a GitHub Pages site here/i.test(headChunk)) return null;
+    // Filter out auto-generated README.md dumps & documentation books (mdBook / MkDocs / Sphinx)
+    const isReadmeOnly = html.includes('markdown-body') && !/<(nav|header|footer|canvas|aside|section)\b/i.test(html);
+    if (isReadmeOnly) return null;
+    if (/Book generated using mdBook|name=["']generator["'][^>]*content=["'](mkdocs|sphinx|gitbook)/i.test(headChunk)) return null;
+
+    const hasWasm = /\.wasm\b|WebAssembly|wasm4|wasm-bindgen|emscripten/i.test(html);
+    const hasCanvas = /<canvas\b/i.test(html);
+    if (requireApp && !hasWasm && !hasCanvas && !/(AudioContext|requestAnimationFrame|calculator|synth|emulator|game|editor)/i.test(html)) {
+      return null;
+    }
+    const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(headChunk);
+    const pageTitle = titleMatch ? titleMatch[1].trim() : '';
+    return {
+      ok: true,
+      finalUrl: r.url || url,
+      hasWasm,
+      hasCanvas,
+      pageTitle
+    };
+  } catch {
+    return null;
+  }
+}
+
 const GITHUB_PRESET_QUERIES = {
-  trending: 'topic:html-template has:pages',
+  trending: 'topic:portfolio-template language:HTML has:pages',
   portfolio: 'topic:portfolio-website language:HTML has:pages',
-  retro: 'neocities language:HTML has:pages',
-  tools: 'calculator language:HTML has:pages',
-  games: 'topic:html5-game has:pages',
-  landing: 'topic:website-template has:pages'
+  retro: 'win95 OR retro OR neocities language:HTML has:pages',
+  landing: 'topic:landing-page language:HTML has:pages',
+  tools: 'calculator OR dashboard language:HTML has:pages',
+  games: 'topic:html5-game language:JavaScript has:pages'
 };
 
+const CURATED_GITHUB_TEMPLATES = [
+  { id: 'gh-cur-win95', title: 'Win95.css Retro Desktop UI Kit & Template', author: 'AlexBSoft', stars: 590, cat: 'Retro / OS UI', desc: 'Authentic Windows 95 / 98 retro desktop layout and UI components in pure HTML & CSS.', tags: ['win95', 'retro', 'desktop', 'html-css'], url: 'https://alexbsoft.github.io/win95.css/', repoUrl: 'https://github.com/AlexBSoft/win95.css', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-dopefolio', title: 'Dopefolio Developer & Creator Template', author: 'rammcodes', stars: 3760, cat: 'Portfolio', desc: 'Clean, fast-loading dark/light portfolio and case-study HTML template.', tags: ['portfolio', 'responsive', 'clean'], url: 'https://dopefolio.netlify.app/', repoUrl: 'https://github.com/rammcodes/Dopefolio', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-wowfolio', title: 'WowFolio Minimalist Creator Template', author: 'rammcodes', stars: 595, cat: 'Portfolio', desc: 'Zero-dependency HTML5 & CSS3 portfolio template with sharp typography.', tags: ['portfolio', 'minimal', 'html5'], url: 'https://wowfolio.netlify.app/', repoUrl: 'https://github.com/rammcodes/WowFolio', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-tailwind-land', title: 'Tailwind Toolbox App Landing Page', author: 'tailwindtoolbox', stars: 1450, cat: 'Landing Page', desc: 'Vibrant gradient startup and product landing page template.', tags: ['landing-page', 'gradient', 'startup'], url: 'https://tailwindtoolbox.github.io/Landing-Page', repoUrl: 'https://github.com/tailwindtoolbox/Landing-Page', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-cpro', title: 'CommunityPro Dark/Light HTML Portfolio', author: 'CommunityPro', stars: 675, cat: 'Portfolio', desc: 'Modular project showcase grid with built-in dark/light theme switcher.', tags: ['grid', 'theme-toggle', 'html5'], url: 'https://cpro-portfolio-html.netlify.app/', repoUrl: 'https://github.com/CommunityPro/portfolio-html', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-minport', title: 'Minimalist Dark Editorial Portfolio', author: 'giotsere', stars: 485, cat: 'Editorial', desc: 'Ultra-clean dark typography & project index layout.', tags: ['dark', 'minimalist', 'typography'], url: 'https://giotsere.github.io/minimalist-portfolio/', repoUrl: 'https://github.com/giotsere/minimalist-portfolio', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-mobileapp', title: 'Mobile App Showcase Landing Template', author: 'sandoche', stars: 945, cat: 'App Showcase', desc: 'Single-screen product showcase designed for software & mobile tools.', tags: ['app-landing', 'product', 'clean'], url: 'https://mobileapplandingpage.learn.uno/', repoUrl: 'https://github.com/sandoche/Mobile-app-landingpage-template', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-nescss', title: 'NES.css 8-Bit Nintendo Style Framework Demo', author: 'nostalgic-css', stars: 19800, cat: 'Retro / 8-Bit', desc: 'NES-style 8-bit pixel borders, badges, buttons, and dialog boxes in pure CSS.', tags: ['8bit', 'pixel-art', 'retro', 'nes'], url: 'https://nostalgic-css.github.io/NES.css/', repoUrl: 'https://github.com/nostalgic-css/NES.css', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-98css', title: '98.css Windows 98 Classic Design System', author: 'jdan', stars: 10900, cat: 'Retro / OS UI', desc: 'Faithful Windows 98 window frames, bevels, tabs, and pixel typography in pure CSS.', tags: ['win98', 'retro', 'ui-kit'], url: 'https://jdan.github.io/98.css/', repoUrl: 'https://github.com/jdan/98.css', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-xpcss', title: 'XP.css Windows XP Luna & Classic Theme', author: 'botoxparty', stars: 5200, cat: 'Retro / OS UI', desc: 'Classic Windows XP Luna blue titlebars, tabs, and control panels for HTML pages.', tags: ['winxp', 'retro', 'luna'], url: 'https://botoxparty.github.io/XP.css/', repoUrl: 'https://github.com/botoxparty/XP.css', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-7css', title: '7.css Windows 7 Aero Glass UI System', author: 'khang-nd', stars: 3800, cat: 'Aero Glass', desc: 'Frutiger Aero translucent glass windows, glossy buttons, and progress bars in CSS.', tags: ['aero', 'win7', 'glass'], url: 'https://khang-nd.github.io/7.css/', repoUrl: 'https://github.com/khang-nd/7.css', source: 'GitHub Verified', license: 'MIT' },
+  { id: 'gh-cur-tuicss', title: 'TuiCss MS-DOS ASCII Terminal Theme', author: 'vinibiavatti1', stars: 2100, cat: 'DOS Terminal', desc: ' Turbo Vision / MS-DOS BIOS blue-screen text user interface in HTML & CSS.', tags: ['dos', 'tui', 'ascii', 'terminal'], url: 'https://vinibiavatti1.github.io/TuiCss/', repoUrl: 'https://github.com/vinibiavatti1/TuiCss', source: 'GitHub Verified', license: 'MIT' }
+].map((x) => ({
+  ...x,
+  thumb: `https://s0.wp.com/mshots/v1/${encodeURIComponent(x.url)}?w=600&h=400`
+}));
+
 async function searchGithubTemplates({ query = '', filter = 'trending', token = '', page = 1 } = {}) {
+  // If user is on default 'curated-gh' or if rate limited, we always include verified templates
+  if (filter === 'verified' && !query.trim()) {
+    return { sites: CURATED_GITHUB_TEMPLATES, total: CURATED_GITHUB_TEMPLATES.length };
+  }
+
   let q = '';
   if (query && query.trim()) {
     q = `${query.trim()} language:HTML has:pages`;
@@ -194,40 +261,226 @@ async function searchGithubTemplates({ query = '', filter = 'trending', token = 
     headers['Authorization'] = `Bearer ${token.trim()}`;
   }
 
-  const r = await fetch(apiUrl, { headers });
-  if (!r.ok) {
-    if (r.status === 403 || r.status === 429) {
-      throw new Error('GitHub API rate limit reached (60/hr without token). Click "🔑 API Key" in the top corner to add a free GitHub token for 5,000 searches/hr!');
+  let items = [];
+  let totalCount = 0;
+  try {
+    const r = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      const data = await r.json();
+      items = Array.isArray(data.items) ? data.items : [];
+      totalCount = data.total_count || items.length;
+    } else if (r.status === 403 || r.status === 429) {
+      if (!query.trim()) return { sites: CURATED_GITHUB_TEMPLATES, total: CURATED_GITHUB_TEMPLATES.length };
+      throw new Error('GitHub API rate limit reached. Click "🔑 GitHub API Key" to add a free token, or browse Verified Picks!');
     }
-    throw new Error(`GitHub API returned HTTP ${r.status}`);
+  } catch (e) {
+    if (!query.trim()) return { sites: CURATED_GITHUB_TEMPLATES, total: CURATED_GITHUB_TEMPLATES.length };
+    throw e;
   }
-  const data = await r.json();
-  const items = Array.isArray(data.items) ? data.items : [];
 
-  const sites = items.map((repo) => {
-    let liveUrl = (repo.homepage || '').trim();
-    if (!liveUrl || !/^https?:\/\//i.test(liveUrl) || /github\.com\//i.test(liveUrl)) {
-      liveUrl = `https://${repo.owner.login}.github.io/${repo.name}/`;
+  // Verify every candidate URL in parallel so 404s, YouTube links, and README dumps are stripped out!
+  const verified = await Promise.all(items.map(async (repo) => {
+    if (!repo || !repo.owner) return null;
+    if (/^(awesome-|readme|list-of|collection|course|tutorial|documentation)/i.test(repo.name)) return null;
+
+    const ghPagesUrl = `https://${repo.owner.login}.github.io/${repo.name}/`;
+    let candidateUrl = (repo.homepage || '').trim();
+    if (!candidateUrl || !/^https?:\/\//i.test(candidateUrl) || BAD_DEMO_HOSTS.test(candidateUrl)) {
+      candidateUrl = ghPagesUrl;
     }
+
+    let check = await verifyLiveHtmlUrl(candidateUrl, { requireApp: filter === 'games' || filter === 'tools' });
+    if (!check && candidateUrl !== ghPagesUrl) {
+      candidateUrl = ghPagesUrl;
+      check = await verifyLiveHtmlUrl(candidateUrl, { requireApp: filter === 'games' || filter === 'tools' });
+    }
+    if (!check) return null;
+
     const topics = Array.isArray(repo.topics) ? repo.topics.slice(0, 5) : [];
+    const cleanRepoName = repo.name.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     return {
       id: `gh-${repo.id}`,
-      title: repo.name.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      source: 'GitHub Community',
-      author: repo.owner ? repo.owner.login : 'github',
-      avatar: repo.owner ? repo.owner.avatar_url : '',
+      title: cleanRepoName.length > 3 ? cleanRepoName : (check.pageTitle || cleanRepoName),
+      source: check.hasWasm ? 'GitHub WASM + HTML' : 'GitHub Live HTML',
+      author: repo.owner.login,
+      avatar: repo.owner.avatar_url || '',
       stars: repo.stargazers_count || 0,
-      cat: topics[0] || 'HTML Template',
-      desc: repo.description || `Open-source HTML template by @${repo.owner ? repo.owner.login : 'community'}`,
+      cat: check.hasWasm ? '⚡ WASM' : (topics[0] || 'HTML Template'),
+      desc: repo.description || `Verified live HTML template by @${repo.owner.login}`,
       tags: topics,
-      url: liveUrl,
+      url: check.finalUrl || candidateUrl,
       repoUrl: repo.html_url,
-      thumb: `https://s0.wp.com/mshots/v1/${encodeURIComponent(liveUrl)}?w=600&h=400`,
+      hasWasm: check.hasWasm,
+      thumb: `https://s0.wp.com/mshots/v1/${encodeURIComponent(check.finalUrl || candidateUrl)}?w=600&h=400`,
       license: (repo.license && repo.license.spdx_id) || 'Open Source'
     };
-  });
+  }));
 
-  return { sites, total: data.total_count || sites.length };
+  const validSites = verified.filter(Boolean);
+  if (!query.trim() && filter === 'trending') {
+    const seen = new Set(validSites.map((s) => s.url));
+    const merged = [...CURATED_GITHUB_TEMPLATES.filter((c) => !seen.has(c.url)), ...validSites];
+    return { sites: merged, total: totalCount + CURATED_GITHUB_TEMPLATES.length };
+  }
+  return { sites: validSites.length ? validSites : CURATED_GITHUB_TEMPLATES, total: totalCount || validSites.length };
+}
+
+/* ============================================================================
+   3B. FREE WASM (WebAssembly) & HTML5 APPS CATALOG + LIVE DISCOVERY
+   ============================================================================ */
+const CURATED_WASM_APPS = [
+  // WASM-4 Instant Offline Native .wasm Cartridges (Downloaded in ~0.3s via importWasm4Cart)
+  { id: 'w4-wasmstein3d', wasm4Slug: 'wasmstein3d', title: 'WASMstein 3D (Wolfenstein Raycaster .wasm)', author: 'Jeremy Zeiber', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Full 3D raycasting dungeon crawler with procedural levels compiled to a 65 KB WebAssembly (.wasm) binary.', tags: ['wasm', 'raycaster', '3d', 'fps'], url: 'https://wasm4.org/play/wasmstein3d/', thumb: 'https://wasm4.org/carts/wasmstein3d.png', license: 'Open Source' },
+  { id: 'w4-mandelbrot', wasm4Slug: 'mandelbrot', title: 'WASM-4 Mandelbrot Fractal Explorer (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Interactive fixed/floating-point fractal zoomer compiled directly to WebAssembly bytecode.', tags: ['wasm', 'fractal', 'math', 'shader'], url: 'https://wasm4.org/play/mandelbrot/', thumb: 'https://wasm4.org/carts/mandelbrot.png', license: 'Open Source' },
+  { id: 'w4-particle-editor', wasm4Slug: 'particle-editor', title: 'WASM Particle & FX Synth Editor (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Real-time 2D particle emitter & retro game visual effects designer running in WebAssembly.', tags: ['wasm', 'particles', 'tool', 'fx'], url: 'https://wasm4.org/play/particle-editor/', thumb: 'https://wasm4.org/carts/particle-editor.png', license: 'Open Source' },
+  { id: 'w4-miniciv', wasm4Slug: 'miniciv', title: 'MiniCiv Strategy Builder (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Turn-based 4X civilization & map builder packed into a tiny standalone WebAssembly binary.', tags: ['wasm', 'strategy', 'civ', 'sim'], url: 'https://wasm4.org/play/miniciv/', thumb: 'https://wasm4.org/carts/miniciv.png', license: 'Open Source' },
+  { id: 'w4-zigtris', wasm4Slug: 'zigtris', title: 'Zigtris Block Puzzle (Zig + .wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Written in Zig and compiled to a pure WebAssembly cartridge with chiptune audio.', tags: ['zig', 'wasm', 'tetris', 'arcade'], url: 'https://wasm4.org/play/zigtris/', thumb: 'https://wasm4.org/carts/zigtris.png', license: 'Open Source' },
+  { id: 'w4-glitch-dungeon', wasm4Slug: 'glitch-dungeon', title: 'Glitch Dungeon Crawler (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Retro dungeon puzzle adventure powered by a self-contained WebAssembly state machine.', tags: ['wasm', 'rpg', 'dungeon'], url: 'https://wasm4.org/play/glitch-dungeon/', thumb: 'https://wasm4.org/carts/glitch-dungeon.png', license: 'Open Source' },
+  { id: 'w4-snake', wasm4Slug: 'snake', title: 'WASM-4 Arcade Snake (.wasm)', author: 'Bruno Garcia', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Reference WebAssembly fantasy console cartridge running at 60Hz with 160×160 framebuffer.', tags: ['wasm', 'snake', 'arcade'], url: 'https://wasm4.org/play/snake/', thumb: 'https://wasm4.org/carts/snake.png', license: 'MIT' },
+  { id: 'w4-minesweeper', wasm4Slug: 'minesweeper', title: 'WASM-4 Classic Minesweeper (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Mouse-driven classic Minesweeper compiled to a tiny 12 KB WebAssembly binary.', tags: ['wasm', 'minesweeper', 'puzzle'], url: 'https://wasm4.org/play/minesweeper/', thumb: 'https://wasm4.org/carts/minesweeper.png', license: 'MIT' },
+  { id: 'w4-sokoban', wasm4Slug: 'sokoban', title: 'WASM-4 Sokoban Warehouse Puzzle (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Classic crate-pushing logic puzzle game compiled to native WebAssembly.', tags: ['wasm', 'sokoban', 'puzzle'], url: 'https://wasm4.org/play/sokoban/', thumb: 'https://wasm4.org/carts/sokoban.png', license: 'MIT' },
+  { id: 'w4-2048', wasm4Slug: '2048', title: 'WASM-4 2048 Number Tile Engine (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Fast sliding-tile math puzzle compiled to WebAssembly.', tags: ['wasm', '2048', 'math'], url: 'https://wasm4.org/play/2048/', thumb: 'https://wasm4.org/carts/2048.png', license: 'MIT' },
+  { id: 'w4-watris', wasm4Slug: 'watris', title: 'Watris (Written in Raw .wat WebAssembly Text!)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: 'Hand-coded in raw WebAssembly Text Format (.wat) and assembled to .wasm.', tags: ['wat', 'wasm', 'arcade'], url: 'https://wasm4.org/play/watris/', thumb: 'https://wasm4.org/carts/watris.png', license: 'MIT' },
+  { id: 'w4-tank-wars', wasm4Slug: 'tank-wars', title: 'Tank Wars Artillery Arena (.wasm)', author: 'WASM-4 Community', cat: '🕹️ WASM-4 Console', source: 'WASM-4 (.wasm)', hasWasm: true, desc: '2-player destructible-terrain tank battle compiled to WebAssembly.', tags: ['wasm', 'tanks', 'arcade'], url: 'https://wasm4.org/play/tank-wars/', thumb: 'https://wasm4.org/carts/tank-wars.png', license: 'Open Source' },
+
+  // Standalone Rust-WASM, WebGL, Synth & Creative Web Apps on GitHub Pages / Open Web
+  { id: 'wasm-egui', title: 'egui Rust + WASM Desktop GUI Workbench', author: 'emilk', stars: 31700, cat: '🦀 Rust + WASM', source: 'GitHub Rust/WASM', hasWasm: true, desc: 'Full desktop windowing workspace (clock, fractal, color picker, code editor, plotters) written in Rust and compiled to WebAssembly + WebGL.', tags: ['rust', 'wasm', 'gui', 'desktop-in-html'], url: 'https://emilk.github.io/egui/', repoUrl: 'https://github.com/emilk/egui', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Femilk.github.io%2Fegui%2F?w=600&h=400', license: 'MIT' },
+  { id: 'wasm-photon', title: 'Photon Rust + WASM Image Filter Studio', author: 'silvia-odwyer', stars: 3915, cat: '🦀 Rust + WASM', source: 'GitHub Rust/WASM', hasWasm: true, desc: 'High-speed Rust WebAssembly image processor with 60+ real-time pixel filters, halftone, and channel shifts.', tags: ['rust', 'wasm', 'image-editor', 'filters'], url: 'https://silvia-odwyer.github.io/photon/', repoUrl: 'https://github.com/silvia-odwyer/photon', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fsilvia-odwyer.github.io%2Fphoton%2F?w=600&h=400', license: 'Apache-2.0' },
+  { id: 'wasm-genact', title: 'Genact Rust + WASM Retro Activity Generator', author: 'svenstaro', stars: 12225, cat: '🦀 Rust + WASM', source: 'GitHub Rust/WASM', hasWasm: true, desc: 'Hypnotic multi-module terminal activity, kernel compiler, and hex-dump simulator compiled from Rust to WebAssembly.', tags: ['rust', 'wasm', 'terminal', 'simulator'], url: 'https://svenstaro.github.io/genact/', repoUrl: 'https://github.com/svenstaro/genact', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fsvenstaro.github.io%2Fgenact%2F?w=600&h=400', license: 'MIT' },
+  { id: 'wasm-rayon', title: 'Multithreaded WASM Ray/Fractal Benchmark', author: 'GoogleChromeLabs', stars: 405, cat: '🦀 Rust + WASM', source: 'GitHub Rust/WASM', hasWasm: true, desc: 'Google Chrome Labs demo of Rust + wasm-bindgen rendering fractals across WebAssembly threads.', tags: ['rust', 'wasm', 'fractal', 'benchmark'], url: 'https://googlechromelabs.github.io/wasm-bindgen-rayon/', repoUrl: 'https://github.com/GoogleChromeLabs/wasm-bindgen-rayon', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fgooglechromelabs.github.io%2Fwasm-bindgen-rayon%2F?w=600&h=400', license: 'Apache-2.0' },
+  { id: 'app-bassoontracker', title: 'BassoonTracker Amiga MOD / XM Music Studio', author: 'steffest', stars: 2600, cat: '🎹 Audio & Synth', source: 'GitHub Web App', hasWasm: false, desc: 'Full 4-channel / 8-channel retro Amiga ProTracker & FastTracker II music synthesizer and sample editor in HTML5.', tags: ['tracker', 'synth', 'amiga', 'mod', 'audio'], url: 'https://www.stef.be/bassoontracker/', repoUrl: 'https://github.com/steffest/BassoonTracker', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fwww.stef.be%2Fbassoontracker%2F?w=600&h=400', license: 'MIT' },
+  { id: 'app-fluid', title: 'WebGL Navier-Stokes Fluid Physics Sandbox', author: 'PavelDoGreat', stars: 16200, cat: '🎨 Creative & Physics', source: 'GitHub WebGL', hasWasm: false, desc: 'Interactive GPU shader fluid dynamics simulation with customizable vorticity, bloom, and sunrays.', tags: ['webgl', 'physics', 'shader', 'interactive'], url: 'https://paveldogreat.github.io/WebGL-Fluid-Simulation/', repoUrl: 'https://github.com/PavelDoGreat/WebGL-Fluid-Simulation', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fpaveldogreat.github.io%2FWebGL-Fluid-Simulation%2F?w=600&h=400', license: 'MIT' },
+  { id: 'app-jspaint', title: 'JS Paint (Classic MS Paint Full Studio)', author: '1j01', stars: 7100, cat: '🎨 Creative & Physics', source: 'GitHub Web App', hasWasm: false, desc: 'Pixel-accurate remake of classic Windows 98 MS Paint with sprite editing, palettes, and file export.', tags: ['paint', 'pixel-art', 'retro', 'editor'], url: 'https://jspaint.app/', repoUrl: 'https://github.com/1j01/jspaint', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fjspaint.app%2F?w=600&h=400', license: 'MIT' },
+  { id: 'app-nand', title: 'NAND 16-Bit Hardware & CPU Gate Simulator', author: 'ArhanChaudhary', stars: 605, cat: '🔬 Binary & Hardware', source: 'GitHub Web App', hasWasm: false, desc: 'Interactive logic gate, ALU, RAM, and 16-bit CPU hardware builder running directly in the browser.', tags: ['hardware', 'cpu', 'logic-gates', 'simulator'], url: 'https://arhanchaudhary.github.io/NAND/', repoUrl: 'https://github.com/ArhanChaudhary/NAND', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Farhanchaudhary.github.io%2FNAND%2F?w=600&h=400', license: 'MIT' },
+  { id: 'app-sandboxels', title: 'Sandboxels Falling-Sand Chemistry & Circuit Lab', author: 'R74nCom', stars: 475, cat: '🎨 Creative & Physics', source: 'GitHub Web App', hasWasm: false, desc: 'Cellular automata physics, thermodynamics, electronics, and chemistry sandbox with 500+ elements.', tags: ['sandbox', 'physics', 'chemistry', 'electronics'], url: 'https://sandboxels.r74n.com/', repoUrl: 'https://github.com/R74nCom/sandboxels', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fsandboxels.r74n.com%2F?w=600&h=400', license: 'Open Source' },
+  { id: 'app-hexgl', title: 'HexGL Futuristic 3D Anti-Gravity Racer', author: 'BKcore', stars: 6900, cat: '🕹️ WASM-4 Console', source: 'GitHub WebGL', hasWasm: false, desc: 'Fast-paced Wipeout/F-Zero tribute 3D racing game built with HTML5, Javascript, and WebGL.', tags: ['webgl', '3d', 'racing', 'arcade'], url: 'https://hexgl.bkcore.com/play/', repoUrl: 'https://github.com/BKcore/HexGL', thumb: 'https://s0.wp.com/mshots/v1/https%3A%2F%2Fhexgl.bkcore.com%2Fplay%2F?w=600&h=400', license: 'MIT' }
+];
+
+async function fetchWasm4Community({ search = '' } = {}) {
+  try {
+    const r = await fetch('https://wasm4.org/play/', {
+      headers: { 'User-Agent': 'Mozilla/5.0 Chrome/130.0 Safari/537.36' },
+      signal: AbortSignal.timeout(7000)
+    });
+    if (!r.ok) return CURATED_WASM_APPS.filter((a) => a.wasm4Slug);
+    const html = await r.text();
+    const $ = cheerio.load(html);
+    const apps = [];
+    $('a[href^="/play/"]').each((_, el) => {
+      const href = $(el).attr('href') || '';
+      if (href === '/play/' || href === '/play') return;
+      const slug = href.replace(/^\/play\/|\/$/g, '').trim();
+      if (!slug || slug.includes('/')) return;
+      const title = $(el).find('.avatar__name').text().trim() || slug.replace(/[-_]+/g, ' ');
+      const author = $(el).find('.avatar__subtitle').text().trim() || 'WASM-4 Creator';
+      const img = $(el).find('img').attr('src') || `/carts/${slug}.png`;
+      const thumb = img.startsWith('http') ? img : `https://wasm4.org${img}`;
+      apps.push({
+        id: `w4-${slug}`,
+        wasm4Slug: slug,
+        title: `${title} (.wasm)`,
+        author,
+        cat: '🕹️ WASM-4 Console',
+        source: 'WASM-4 (.wasm)',
+        hasWasm: true,
+        desc: `Compiled WebAssembly (.wasm) fantasy console app by ${author}. Click "🧰 + Bung into Multi-App Hub" for instant 0.3s offline install!`,
+        tags: ['wasm', 'wasm4', 'cartridge', slug],
+        url: `https://wasm4.org/play/${slug}/`,
+        thumb,
+        license: 'Open Source'
+      });
+    });
+    const q = search.trim().toLowerCase();
+    return q
+      ? apps.filter((a) => a.title.toLowerCase().includes(q) || a.author.toLowerCase().includes(q) || a.slug?.includes(q))
+      : apps;
+  } catch {
+    return CURATED_WASM_APPS.filter((a) => a.wasm4Slug);
+  }
+}
+
+const GITHUB_WASM_QUERIES = {
+  curated: '',
+  wasm4: 'wasm4',
+  rustwasm: 'topic:wasm-bindgen OR (rust wasm) has:pages',
+  emulators: 'emulator OR chip8 OR gameboy wasm has:pages',
+  synths: 'synth OR tracker OR webaudio wasm has:pages',
+  webgl: 'topic:webgl OR topic:html5-game has:pages'
+};
+
+async function searchGithubWasmApps({ query = '', filter = 'curated', token = '', page = 1 } = {}) {
+  const qClean = (query || '').trim().toLowerCase();
+  if (filter === 'curated' && !qClean) {
+    return { sites: CURATED_WASM_APPS, total: CURATED_WASM_APPS.length };
+  }
+  if (filter === 'wasm4') {
+    const w4 = await fetchWasm4Community({ search: qClean });
+    return { sites: w4, total: w4.length };
+  }
+
+  const ghQuery = qClean
+    ? `${query.trim()} (wasm OR webassembly OR canvas OR html5) has:pages`
+    : (GITHUB_WASM_QUERIES[filter] || 'topic:webassembly has:pages');
+
+  const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(ghQuery)}&sort=stars&order=desc&per_page=24&page=${page}`;
+  const headers = {
+    'User-Agent': 'MyHTML-WASM-Explorer/1.0',
+    'Accept': 'application/vnd.github+json'
+  };
+  if (token && token.trim()) {
+    headers['Authorization'] = `Bearer ${token.trim()}`;
+  }
+
+  try {
+    const r = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) {
+      return { sites: CURATED_WASM_APPS, total: CURATED_WASM_APPS.length };
+    }
+    const data = await r.json();
+    const items = Array.isArray(data.items) ? data.items : [];
+
+    const verified = await Promise.all(items.map(async (repo) => {
+      if (!repo || !repo.owner) return null;
+      if (/^(awesome-|readme|list-of|collection|course|tutorial|book)/i.test(repo.name)) return null;
+
+      // Prefer github.io URL first so we get the actual hosted WASM/HTML5 app rather than a corporate docs homepage
+      const ghPagesUrl = `https://${repo.owner.login}.github.io/${repo.name}/`;
+      let check = await verifyLiveHtmlUrl(ghPagesUrl, { requireApp: true });
+      let finalUrl = ghPagesUrl;
+
+      if (!check && repo.homepage && /^https?:\/\//i.test(repo.homepage) && !BAD_DEMO_HOSTS.test(repo.homepage)) {
+        check = await verifyLiveHtmlUrl(repo.homepage.trim(), { requireApp: true });
+        if (check) finalUrl = check.finalUrl || repo.homepage.trim();
+      }
+      if (!check) return null;
+
+      const topics = Array.isArray(repo.topics) ? repo.topics.slice(0, 5) : [];
+      const cleanName = repo.name.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      return {
+        id: `ghwasm-${repo.id}`,
+        title: cleanName + (check.hasWasm ? ' (WASM)' : ''),
+        author: repo.owner.login,
+        stars: repo.stargazers_count || 0,
+        cat: check.hasWasm ? '⚡ Native WASM' : '🎮 HTML5 / Canvas',
+        source: check.hasWasm ? 'GitHub WASM App' : 'GitHub HTML5 App',
+        hasWasm: check.hasWasm,
+        desc: repo.description || `Live open-source ${check.hasWasm ? 'WebAssembly' : 'HTML5'} app by @${repo.owner.login}`,
+        tags: topics,
+        url: finalUrl,
+        repoUrl: repo.html_url,
+        thumb: `https://s0.wp.com/mshots/v1/${encodeURIComponent(finalUrl)}?w=600&h=400`,
+        license: (repo.license && repo.license.spdx_id) || 'Open Source'
+      };
+    }));
+
+    const valid = verified.filter(Boolean);
+    return {
+      sites: valid.length ? valid : CURATED_WASM_APPS,
+      total: valid.length || CURATED_WASM_APPS.length
+    };
+  } catch {
+    return { sites: CURATED_WASM_APPS, total: CURATED_WASM_APPS.length };
+  }
 }
 
 /* ============================================================================
@@ -1175,10 +1428,14 @@ ${bodyHtml}
 
 module.exports = {
   CURATED_LIVE_TEMPLATES,
+  CURATED_GITHUB_TEMPLATES,
+  CURATED_WASM_APPS,
   ARCHETYPES,
   COLOR_PALETTES,
   FONT_PAIRINGS,
   fetchNeocitiesCommunity,
   searchGithubTemplates,
+  searchGithubWasmApps,
+  fetchWasm4Community,
   generateFreshWebsite
 };

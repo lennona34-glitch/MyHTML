@@ -24,6 +24,7 @@
       <button type="button" class="myhtml-hub-btn-add" style="background:#4f46e5;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add a Web App folder (like XISO dist)">📂 + App Folder</button>
       <button type="button" class="myhtml-hub-btn-bulk" style="background:#7c3aed;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Bung a whole folder of 10 or 30 apps into this hub at once">📚 + Bulk Folder</button>
       <button type="button" class="myhtml-hub-btn-file" style="background:#2563eb;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add standalone .html app files">📄 + .html File</button>
+      <button type="button" class="myhtml-hub-btn-wasm" style="background:#059669;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Browse 150+ free WebAssembly (.wasm) & HTML5 apps to bung into this Hub!">⚡ + Free WASM Apps</button>
       <button type="button" class="myhtml-hub-btn-create" style="background:#ec4899;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Create a brand-new standalone .html app or paste HTML code right into the Hub!">✨ + New .html App</button>
       <button type="button" class="myhtml-app-btn-test" style="background:#10b981;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:700;cursor:pointer;" title="Run and switch between apps live">▶ Test Live</button>
     </div>
@@ -38,6 +39,10 @@
         <button type="button" class="myhtml-hub-item active" data-app-src="assets/apps/xiso-tool/index.html" data-app-title="XISO Tool" data-app-icon="💿" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid #4f46e5;background:rgba(79,70,229,0.22);color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer;">
           <span style="font-size:15px;">💿</span>
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">XISO Tool</span>
+        </button>
+        <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/wasm-studio/index.html" data-app-title="WASM Fractal &amp; Binary Studio" data-app-icon="⚡" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
+          <span style="font-size:15px;">⚡</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">WASM Fractal &amp; Binary Studio</span>
         </button>
         <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/hex-inspector/index.html" data-app-title="Hex &amp; Binary Inspector" data-app-icon="🔬" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
           <span style="font-size:15px;">🔬</span>
@@ -58,6 +63,7 @@
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="color:#10b981;font-size:10px;">● ACTIVE SCREEN</span>
           <strong class="myhtml-hub-active-title" style="color:#f8fafc;">💿 XISO Tool</strong>
+          <span class="myhtml-hub-wasm-badge" style="background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.4);padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;font-family:monospace;">⚡ WASM NATIVE</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <button type="button" class="myhtml-hub-edit-app" style="background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;" title="View or edit the HTML code of this active app">✎ Edit App .html</button>

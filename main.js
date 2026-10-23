@@ -17,15 +17,19 @@ const {
   styleHtmlAppsInProject,
   saveCustomHtmlApp,
   readHtmlAppCode,
-  deleteHtmlApp
+  deleteHtmlApp,
+  importWasm4Cart
 } = require('./builtin-apps');
 const {
   CURATED_LIVE_TEMPLATES,
+  CURATED_GITHUB_TEMPLATES,
+  CURATED_WASM_APPS,
   ARCHETYPES,
   COLOR_PALETTES,
   FONT_PAIRINGS,
   fetchNeocitiesCommunity,
   searchGithubTemplates,
+  searchGithubWasmApps,
   generateFreshWebsite
 } = require('./community-templates');
 
@@ -436,6 +440,8 @@ function loadGhToken() {
 
 ipcMain.handle('templates:catalog', () => ({
   curated: CURATED_LIVE_TEMPLATES,
+  githubCurated: CURATED_GITHUB_TEMPLATES,
+  wasmApps: CURATED_WASM_APPS,
   archetypes: ARCHETYPES.map((a) => ({ id: a.id, name: a.name, badge: a.badge })),
   palettes: COLOR_PALETTES,
   fonts: FONT_PAIRINGS,
@@ -449,6 +455,15 @@ ipcMain.handle('templates:neocities', async (_, opts) => {
 ipcMain.handle('templates:github', async (_, opts) => {
   const token = loadGhToken();
   return searchGithubTemplates({ ...(opts || {}), token });
+});
+
+ipcMain.handle('templates:wasm', async (_, opts) => {
+  const token = loadGhToken();
+  return searchGithubWasmApps({ ...(opts || {}), token });
+});
+
+ipcMain.handle('app:importWasm4', async (_, { projectDir, cartSlug, title }) => {
+  return importWasm4Cart(cartSlug, title, projectDir);
 });
 
 ipcMain.handle('templates:setGithubToken', async (_, token) => {
@@ -487,6 +502,6 @@ ipcMain.handle('templates:cloneCommunity', async (e, { url, title, slug }) => {
   fs.mkdirSync(dir, { recursive: true });
   ensureStarterApps(dir);
   const send = (m) => e.sender.send('clone:progress', m);
-  const res = await cloneSite(url, dir, { maxPages: 1, stripScripts: true }, send);
+  const res = await cloneSite(url, dir, { maxPages: 1, stripScripts: false }, send);
   return { ...info(dir), result: res };
 });

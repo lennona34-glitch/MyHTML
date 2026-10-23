@@ -371,6 +371,25 @@
         if (testB) topActions.insertBefore(createB, testB);
         else topActions.appendChild(createB);
       }
+      if (topActions && !topActions.querySelector('.myhtml-hub-btn-wasm')) {
+        const testB = topActions.querySelector('.myhtml-app-btn-test');
+        const wasmB = doc.createElement('button');
+        wasmB.type = 'button';
+        wasmB.className = 'myhtml-hub-btn-wasm';
+        wasmB.style.cssText = 'background:#f59e0b;color:#080c14;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:800;cursor:pointer;';
+        wasmB.title = 'Browse free WebAssembly (.wasm) apps, games, emulators & tools to bung into this Hub';
+        wasmB.textContent = '⚡ + Free WASM Apps';
+        if (testB) topActions.insertBefore(wasmB, testB);
+        else topActions.appendChild(wasmB);
+      }
+      const stageLeft = hub.querySelector('.myhtml-hub-stagebar > div:first-child');
+      if (stageLeft && !stageLeft.querySelector('.myhtml-hub-wasm-badge')) {
+        const wb = doc.createElement('span');
+        wb.className = 'myhtml-hub-wasm-badge';
+        wb.style.cssText = 'font-size:10px;background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid rgba(245,158,11,0.35);padding:2px 7px;border-radius:4px;font-family:monospace;font-weight:700;';
+        wb.textContent = '⚡ WASM NATIVE';
+        stageLeft.appendChild(wb);
+      }
       const stageActions = hub.querySelector('.myhtml-hub-stagebar > div:last-child');
       if (stageActions && !stageActions.querySelector('.myhtml-hub-edit-app')) {
         const editB = doc.createElement('button');
@@ -530,14 +549,20 @@
     const fr = hub.querySelector('.myhtml-hub-frame');
     const actTitle = hub.querySelector('.myhtml-hub-active-title');
     const pop = hub.querySelector('.myhtml-hub-pop');
+    const wasmBadge = hub.querySelector('.myhtml-hub-wasm-badge');
     if (cur) {
       const curSrc = cur.src || cur.relPath || 'about:blank';
       if (fr && fr.getAttribute('src') !== curSrc) fr.setAttribute('src', curSrc);
       if (actTitle) actTitle.textContent = `${cur.icon || '📦'} ${cur.title}`;
       if (pop) pop.setAttribute('href', curSrc);
+      if (wasmBadge) {
+        const isWasm = /(xiso-tool|wasm-studio|\/w4-|wasm)/i.test(curSrc + ' ' + (cur.title || ''));
+        wasmBadge.style.display = isWasm ? 'inline-block' : 'none';
+      }
     } else {
       if (fr) fr.setAttribute('src', 'about:blank');
       if (actTitle) actTitle.textContent = 'No apps loaded yet';
+      if (wasmBadge) wasmBadge.style.display = 'none';
     }
 
     const gridItems = hub.querySelector('.myhtml-hub-grid-items');
@@ -867,6 +892,12 @@
     if (hubCreateBtn) {
       e.preventDefault();
       openHtmlAppStudioModal(hubCreateBtn.closest('.myhtml-app-hub'), null);
+      return true;
+    }
+    const hubWasmBtn = t.closest('.myhtml-hub-btn-wasm');
+    if (hubWasmBtn) {
+      e.preventDefault();
+      openCommunityHub('wasm');
       return true;
     }
     const hubEditBtn = t.closest('.myhtml-hub-edit-app');
@@ -2319,8 +2350,10 @@
     curatedSearch: '',
     neoSort: 'special_sauce',
     neoTag: '',
-    ghFilter: 'trending',
+    ghFilter: 'verified',
     ghQuery: '',
+    wasmFilter: 'curated',
+    wasmQuery: '',
     remixArch: '',
     remixFont: '',
     remixPal: ''
@@ -2349,10 +2382,57 @@
     toast(`🎲 Rolled: ${res.meta.archetypeName} (${res.meta.fontPairName})`);
   }
 
+  async function bungItemIntoMultiAppHub(item) {
+    if (!item) return;
+    const statusEl = $('#ctStatusText');
+    if (statusEl) statusEl.textContent = `⏳ Bunging "${item.title}" into your Multi-App Hub…`;
+    toast(`⏳ Downloading "${item.title}" into your Multi-App Hub…`);
+    try {
+      await autosave();
+      // If no project is currently open, create or open a Multi-App Hub project first!
+      if (!S.dir) {
+        const p = await api.newProject({
+          name: 'Multi-App Hub',
+          template: 'apphub',
+          html: TEMPLATES.apphub
+        });
+        await enter(p);
+      }
+      let res = null;
+      if (item.wasm4Slug) {
+        res = await api.importWasm4Cart({
+          projectDir: S.dir,
+          cartSlug: item.wasm4Slug,
+          cartTitle: item.title
+        });
+      } else {
+        res = await api.cloneAppUrl({
+          projectDir: S.dir,
+          url: item.url,
+          customTitle: item.title
+        });
+      }
+      if (res && res.success) {
+        $('#communityModal').hidden = true;
+        addAppObjectToPageOrHub(res);
+        refreshFontsAndAssets();
+        toast(`⚡ Bunged "${res.title}" into your Multi-App Hub!`);
+      }
+    } catch (e) {
+      const msg = cleanErr(e);
+      if (statusEl) statusEl.textContent = `⚠ Error: ${msg}`;
+      toast(`Could not bung app: ${msg}`);
+    }
+  }
+
   async function cloneCommunitySite(item) {
     if (!item || !item.url) return;
+    // WASM-4 binary cartridges run best inside the Multi-App Hub with the offline WASM-4 runtime
+    if (item.wasm4Slug) {
+      return bungItemIntoMultiAppHub(item);
+    }
     const statusEl = $('#ctStatusText');
-    if (statusEl) statusEl.textContent = `⏳ Downloading "${item.title}" (${item.url}) — grabbing HTML, CSS, images & fonts…`;
+    if (statusEl) statusEl.textContent = `⏳ Fast-cloning "${item.title}" (${item.url}) — grabbing HTML, CSS, images & WASM/JS…`;
     toast(`⏳ Cloning "${item.title}" from ${item.source || 'web'}…`);
     try {
       await autosave();
@@ -2746,6 +2826,8 @@
   if ($('#wRollFresh')) $('#wRollFresh').onclick = () => rollFreshSite();
   if ($('#bCommunity')) $('#bCommunity').onclick = () => openCommunityHub();
   if ($('#wOpenCommunity')) $('#wOpenCommunity').onclick = () => openCommunityHub();
+  if ($('#bWasmApps')) $('#bWasmApps').onclick = () => openCommunityHub('wasm');
+  if ($('#wOpenWasmApps')) $('#wOpenWasmApps').onclick = () => openCommunityHub('wasm');
   if ($('#bFullPage')) $('#bFullPage').onclick = () => toggleFullPageMode();
   if ($('#remixFullPageBtn')) $('#remixFullPageBtn').onclick = () => toggleFullPageMode(true);
 
@@ -2828,12 +2910,14 @@
     };
   });
 
-  function renderTemplateCards(items, bodyEl) {
+  function renderTemplateCards(items, bodyEl, isWasmTab = false, headerBannerHtml = '') {
     if (!items || !items.length) {
-      bodyEl.innerHTML = `<div style="padding:40px;text-align:center;" class="muted">No templates matched that filter. Try another category or search term!</div>`;
+      bodyEl.innerHTML = headerBannerHtml + `<div style="padding:40px;text-align:center;" class="muted">No items matched that filter. Try another category or search term!</div>`;
       return;
     }
-    bodyEl.innerHTML = `<div class="ct-grid">` + items.map((item, idx) => `
+    bodyEl.innerHTML = headerBannerHtml + `<div class="ct-grid">` + items.map((item, idx) => {
+      const isCart = !!item.wasm4Slug;
+      return `
       <div class="ct-card">
         <div class="ct-thumb">
           <img src="${esc(item.thumb)}" alt="${esc(item.title)}" loading="lazy" onerror="this.style.display='none'">
@@ -2852,19 +2936,30 @@
             <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
               ${(item.tags || []).slice(0, 4).map((t) => `<span style="font-size:9.5px;padding:1px 5px;border-radius:4px;background:var(--card);border:1px solid var(--line);color:var(--muted);">#${esc(t)}</span>`).join('')}
             </div>
-            <div class="ct-card-actions">
-              <button class="btn primary" data-ct-clone="${idx}" style="flex:1;justify-content:center;">⚡ Clone &amp; Edit</button>
-              <button class="btn" data-ct-preview="${idx}" title="Open live site in browser">👁 Preview</button>
+            <div class="ct-card-actions" style="display:flex;gap:5px;flex-wrap:wrap;">
+              ${isWasmTab
+                ? `<button class="btn primary" data-ct-hub="${idx}" style="flex:1;justify-content:center;background:#10b981;border-color:#10b981;color:#050b14;font-weight:800;" title="Download &amp; bung this app straight into your Multi-App Hub">🧰 + Bung in Hub</button>
+                   ${!isCart ? `<button class="btn" data-ct-clone="${idx}" title="Open as a standalone website project">⚡ Open Site</button>` : ''}`
+                : `<button class="btn primary" data-ct-clone="${idx}" style="flex:1;justify-content:center;">⚡ Clone &amp; Edit</button>
+                   <button class="btn" data-ct-hub="${idx}" title="Bung this live page/app into your Multi-App Hub">🧰 + Hub</button>`
+              }
+              <button class="btn" data-ct-preview="${idx}" title="Open live site in browser">👁</button>
             </div>
           </div>
         </div>
-      </div>
-    `).join('') + `</div>`;
+      </div>`;
+    }).join('') + `</div>`;
 
     $$('[data-ct-clone]', bodyEl).forEach((btn) => {
       btn.onclick = () => {
         const item = items[parseInt(btn.dataset.ctClone, 10)];
         cloneCommunitySite(item);
+      };
+    });
+    $$('[data-ct-hub]', bodyEl).forEach((btn) => {
+      btn.onclick = () => {
+        const item = items[parseInt(btn.dataset.ctHub, 10)];
+        bungItemIntoMultiAppHub(item);
       };
     });
     $$('[data-ct-preview]', bodyEl).forEach((btn) => {
@@ -2910,13 +3005,61 @@
           return true;
         });
         statusEl.textContent = `Showing ${filtered.length} verified free HTML5 templates — click "⚡ Clone & Edit" to open any site in MyHTML`;
-        renderTemplateCards(filtered, bodyEl);
+        renderTemplateCards(filtered, bodyEl, false);
       };
 
       searchBtn.onclick = doFilter;
       searchInp.oninput = doFilter;
       searchInp.onkeydown = (e) => { if (e.key === 'Enter') doFilter(); };
       doFilter();
+    } else if (ctState.tab === 'wasm') {
+      searchWrap.hidden = false;
+      searchInp.placeholder = 'Search WASM apps, Rust/C++ tools, emulators, synths, or 151 WASM-4 .wasm cartridges…';
+      searchInp.value = ctState.wasmQuery;
+
+      const wasmPills = [
+        { k: 'curated', label: '⭐ Top Verified WASM & HTML5 Apps (22)' },
+        { k: 'wasm4', label: '🕹️ All 151 WASM-4 .wasm Cartridges' },
+        { k: 'rustwasm', label: '🦀 Rust + C++ WebAssembly Demos' },
+        { k: 'emulators', label: '🖥️ Emulators & Virtual Hardware' },
+        { k: 'synths', label: '🎹 Audio Synths & Trackers' },
+        { k: 'webgl', label: '🌊 WebGL & Physics Shaders' }
+      ];
+      pillsEl.innerHTML = wasmPills.map((p) => `<button class="ct-pill ${!ctState.wasmQuery && ctState.wasmFilter === p.k ? 'on' : ''}" data-wf="${esc(p.k)}">${esc(p.label)}</button>`).join('');
+
+      const wasmExplainer = `
+        <div style="margin-bottom:14px;padding:12px 16px;background:linear-gradient(135deg,rgba(245,158,11,0.13),rgba(16,185,129,0.11));border:1px solid rgba(245,158,11,0.35);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="font-size:12px;line-height:1.5;color:var(--text);">
+            <b style="color:#fbbf24;">⚡ What is WASM (WebAssembly)?</b> It's a binary <code>.wasm</code> engine that lets real desktop apps, C++/Rust programs, Xbox ISO tools (like <b>extract-xiso</b>), synthesizers, and retro game cartridges run <b>inside a normal .html page</b> at native speed — zero installs or <code>.exe</code> files needed!
+          </div>
+          <span style="font-size:11px;font-family:monospace;background:rgba(16,185,129,0.16);color:#34d399;border:1px solid rgba(16,185,129,0.35);padding:4px 9px;border-radius:6px;white-space:nowrap;">Click "🧰 + Bung in Hub" on any app!</span>
+        </div>`;
+
+      const loadWasm = async () => {
+        bodyEl.innerHTML = wasmExplainer + `<div style="padding:40px;text-align:center;" class="muted">⚡ Loading verified WebAssembly (.wasm) apps &amp; cartridges…</div>`;
+        statusEl.textContent = `Fetching verified WebAssembly & HTML5 apps…`;
+        try {
+          const r = await api.searchWasmApps({ query: ctState.wasmQuery, filter: ctState.wasmFilter });
+          statusEl.textContent = `Showing ${r.sites.length} live WebAssembly (.wasm) & HTML5 apps — click "🧰 + Bung in Hub" to add any app to your Multi-App Hub`;
+          renderTemplateCards(r.sites, bodyEl, true, wasmExplainer);
+        } catch (e) {
+          bodyEl.innerHTML = wasmExplainer + `<div style="padding:40px;text-align:center;color:#f87171;">${esc(cleanErr(e))}</div>`;
+        }
+      };
+
+      $$('.ct-pill', pillsEl).forEach((b) => {
+        b.onclick = () => {
+          ctState.wasmFilter = b.dataset.wf;
+          ctState.wasmQuery = '';
+          searchInp.value = '';
+          renderCommunityHub();
+        };
+      });
+
+      searchInp.oninput = null;
+      searchBtn.onclick = () => { ctState.wasmQuery = searchInp.value.trim(); renderCommunityHub(); };
+      searchInp.onkeydown = (e) => { if (e.key === 'Enter') { ctState.wasmQuery = searchInp.value.trim(); renderCommunityHub(); } };
+      await loadWasm();
     } else if (ctState.tab === 'neocities') {
       searchWrap.hidden = false;
       searchInp.placeholder = 'Type any Neocities tag (e.g. retro, games, cyberpunk, music, pixel, zine)…';
@@ -2948,7 +3091,7 @@
         try {
           const r = await api.fetchNeocities({ sort: ctState.neoSort, tag: ctState.neoTag });
           statusEl.textContent = `Loaded ${r.sites.length} live indie websites from Neocities — click "⚡ Clone & Edit" to inspect their HTML bones & fonts!`;
-          renderTemplateCards(r.sites, bodyEl);
+          renderTemplateCards(r.sites, bodyEl, false);
         } catch (e) {
           bodyEl.innerHTML = `<div style="padding:40px;text-align:center;color:#f87171;">Could not load Neocities directory: ${esc(cleanErr(e))}</div>`;
         }
@@ -2975,26 +3118,27 @@
       await loadNeo();
     } else if (ctState.tab === 'github') {
       searchWrap.hidden = false;
-      searchInp.placeholder = 'Search GitHub HTML websites (e.g. brutalist, dashboard, calculator, blog)…';
+      searchInp.placeholder = 'Search verified GitHub HTML websites (filters out README docs & broken 404s)…';
       searchInp.value = ctState.ghQuery;
 
       const ghPills = [
+        { k: 'verified', label: '⭐ Verified Instant Picks (12)' },
         { k: 'trending', label: '🔥 Trending HTML Templates' },
+        { k: 'retro', label: '🕹️ Retro OS & Brutalist UI' },
         { k: 'portfolio', label: '🎨 Portfolios & Personal' },
-        { k: 'retro', label: '🕹️ Retro & Brutalist' },
-        { k: 'tools', label: '🛠️ Calculators & Web Tools' },
-        { k: 'games', label: '🎮 Browser Games' },
-        { k: 'landing', label: '🚀 Landing Pages' }
+        { k: 'tools', label: '🛠️ Calculators & Web Apps' },
+        { k: 'games', label: '🎮 HTML5 Canvas Games' },
+        { k: 'landing', label: '🚀 Clean Landing Pages' }
       ];
       pillsEl.innerHTML = ghPills.map((p) => `<button class="ct-pill ${!ctState.ghQuery && ctState.ghFilter === p.k ? 'on' : ''}" data-gf="${esc(p.k)}">${esc(p.label)}</button>`).join('');
 
       const loadGh = async () => {
-        bodyEl.innerHTML = `<div style="padding:40px;text-align:center;" class="muted">🐙 Searching GitHub public repositories with live GitHub Pages demos…</div>`;
-        statusEl.textContent = `Querying GitHub Community API…`;
+        bodyEl.innerHTML = `<div style="padding:40px;text-align:center;" class="muted">🐙 Verifying live GitHub Pages HTML websites (filtering out README docs &amp; dead links)…</div>`;
+        statusEl.textContent = `Verifying live GitHub Pages HTML websites…`;
         try {
           const r = await api.searchGithubTemplates({ query: ctState.ghQuery, filter: ctState.ghFilter });
-          statusEl.textContent = `Found ${r.total.toLocaleString()} community repositories on GitHub — showing top ${r.sites.length} with live pages`;
-          renderTemplateCards(r.sites, bodyEl);
+          statusEl.textContent = `Showing ${r.sites.length} live-verified GitHub HTML templates (all README dumps & 404s filtered out)`;
+          renderTemplateCards(r.sites, bodyEl, false);
         } catch (e) {
           bodyEl.innerHTML = `<div style="padding:40px;text-align:center;color:#f87171;">${esc(cleanErr(e))}<br><br><button class="btn" onclick="document.getElementById('ctGhTokenBtn').click()">🔑 Connect Free GitHub Token (Optional)</button></div>`;
         }

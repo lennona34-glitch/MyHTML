@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('api', {
   getTemplateCatalog: inv('templates:catalog'),
   fetchNeocities: inv('templates:neocities'),
   searchGithubTemplates: inv('templates:github'),
+  searchWasmApps: inv('templates:wasm'),
+  importWasm4Cart: inv('app:importWasm4'),
   setGithubToken: inv('templates:setGithubToken'),
   rollFreshTemplate: inv('templates:rollFresh'),
   cloneCommunityTemplate: inv('templates:cloneCommunity'),
