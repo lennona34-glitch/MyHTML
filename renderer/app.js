@@ -38,13 +38,86 @@
   const cleanErr = (e) => (e.message || String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
   const normUrl = (v) => { v = (v || '').trim(); return v && !/^https?:\/\//i.test(v) ? 'https://' + v : v; };
 
+  /* ---------- On-Demand Left / Right Drawers & Remix Bar ---------- */
+  function setLeftDrawerOpen(open) {
+    const el = $('#leftDrawer');
+    const btn = $('#bToggleLeft');
+    if (!el) return;
+    const isNow = open !== undefined ? !!open : el.hidden;
+    el.hidden = !isNow;
+    if (btn) btn.classList.toggle('on', isNow);
+  }
+
+  function setRightDrawerOpen(open) {
+    const el = $('#rightDrawer');
+    const btn = $('#bToggleRight');
+    const foot = $('#stageFooter');
+    if (!el) return;
+    const isNow = open !== undefined ? !!open : el.hidden;
+    el.hidden = !isNow;
+    if (btn) btn.classList.toggle('on', isNow);
+    if (foot) foot.hidden = !isNow;
+    if (isNow) {
+      renderInspector();
+      renderComputed();
+      showElHtml();
+    }
+  }
+
+  function setRemixBarOpen(open) {
+    const el = $('#remixBar');
+    const btn = $('#bToggleRemix');
+    if (!el) return;
+    const isNow = open !== undefined ? !!open : el.hidden;
+    el.hidden = !isNow;
+    if (btn) btn.classList.toggle('on', isNow);
+  }
+
+  if ($('#bToggleLeft')) $('#bToggleLeft').onclick = () => setLeftDrawerOpen();
+  if ($('#bToggleRight')) $('#bToggleRight').onclick = () => setRightDrawerOpen();
+  if ($('#bToggleRemix')) $('#bToggleRemix').onclick = () => setRemixBarOpen();
+  if ($('#closeLeftDrawerBtn')) $('#closeLeftDrawerBtn').onclick = () => setLeftDrawerOpen(false);
+  if ($('#closeRightDrawerBtn')) $('#closeRightDrawerBtn').onclick = () => setRightDrawerOpen(false);
+  if ($('#openFullCodeBtn')) $('#openFullCodeBtn').onclick = () => $('#bCode').click();
+
+  async function openStandaloneAppHub() {
+    await autosave();
+    const info = await api.createProject({ template: 'apphub' });
+    if (info) await enter(info, { forceLive: true });
+  }
+
+  async function openStandaloneHtmlFile() {
+    await autosave();
+    const info = await api.openHtmlFile();
+    if (info) {
+      await enter(info, { forceLive: false });
+      toast(`📄 Opened "${info.name}" — double-click text to edit, or click "🚀 Put Online"!`);
+    }
+  }
+
   /* ---------- welcome & recent sites ---------- */
   async function initWelcome() {
     $('#tplGrid').innerHTML = Object.entries(TEMPLATES).map(([k, t]) =>
       `<button class="tpl" data-k="${k}"><div class="e">${t.emoji}</div><b>${t.name}</b><small>${t.desc}</small></button>`
     ).join('');
-    $$('#tplGrid .tpl').forEach((b) => (b.onclick = async () => enter(await api.createProject({ template: b.dataset.k }))));
+    $$('#tplGrid .tpl').forEach((b) => (b.onclick = async () => {
+      const k = b.dataset.k;
+      const info = await api.createProject({ template: k });
+      await enter(info, { forceLive: k === 'apphub' });
+    }));
     $('#wOpen').onclick = $('#bOpen').onclick = async () => { await autosave(); enter(await api.openProject()); };
+    if ($('#bOpenHtmlFile')) $('#bOpenHtmlFile').onclick = openStandaloneHtmlFile;
+    if ($('#wOpenFileBtn')) $('#wOpenFileBtn').onclick = openStandaloneHtmlFile;
+    if ($('#wOpenHtml')) $('#wOpenHtml').onclick = openStandaloneHtmlFile;
+    if ($('#bOpenHub')) $('#bOpenHub').onclick = openStandaloneAppHub;
+    if ($('#wOpenHubBtn')) $('#wOpenHubBtn').onclick = openStandaloneAppHub;
+    if ($('#wPublishFileBtn')) {
+      $('#wPublishFileBtn').onclick = async () => {
+        const picked = await api.pickHtmlFileForPublish();
+        if (picked) openPublish({ mode: 'file', pickedFile: picked });
+      };
+    }
+
     $('#wGoClone').onclick = () => {
       const url = $('#wUrl').value.trim();
       if (!url) { toast('Please enter a website address to copy'); $('#wUrl').focus(); return; }
@@ -54,18 +127,18 @@
     $('#bClone').onclick = () => openClone();
     $('#bHome').onclick = async () => { await autosave(); $('#welcome').hidden = false; loadRecentSites(); };
 
-    // Startup Auto-Roll Toggle (default ON so the app opens straight into a fresh new website template!)
-    if (localStorage.getItem('myhtml-auto-roll-startup') === null) {
-      localStorage.setItem('myhtml-auto-roll-startup', 'true');
+    // Default startup mode to OFF unless user explicitly turns it on
+    if (localStorage.getItem('myhtml-auto-roll-v2') === null) {
+      localStorage.setItem('myhtml-auto-roll-v2', 'false');
     }
-    const autoRollOn = localStorage.getItem('myhtml-auto-roll-startup') === 'true';
+    const autoRollOn = localStorage.getItem('myhtml-auto-roll-v2') === 'true';
     const wCheck = $('#wAutoRollStartup');
     const ctCheck = $('#ctAutoStartupCheck');
     const syncAutoCheck = (val) => {
-      localStorage.setItem('myhtml-auto-roll-startup', val ? 'true' : 'false');
+      localStorage.setItem('myhtml-auto-roll-v2', val ? 'true' : 'false');
       if (wCheck) wCheck.checked = val;
       if (ctCheck) ctCheck.checked = val;
-      toast(val ? '🚀 Startup Mode: Will open a fresh website template on launch!' : '🏠 Startup Mode: Will show Welcome screen on launch');
+      toast(val ? '🚀 Startup Mode: Will open a surprise template on launch!' : '🏠 Startup Mode: Will show Welcome screen on launch');
     };
     if (wCheck) { wCheck.checked = autoRollOn; wCheck.onchange = (e) => syncAutoCheck(e.target.checked); }
     if (ctCheck) { ctCheck.checked = autoRollOn; ctCheck.onchange = (e) => syncAutoCheck(e.target.checked); }
@@ -82,7 +155,7 @@
     try {
       const recents = await api.getRecentProjects();
       if (!recents || !recents.length) {
-        grid.innerHTML = '<div class="muted small" style="padding:10px;">No saved websites yet. Paste an address above to copy your first site!</div>';
+        grid.innerHTML = '<div class="muted small" style="padding:10px;">No saved websites yet. Open a .html file or paste an address above!</div>';
         return;
       }
       grid.innerHTML = recents.map((r) => {
@@ -106,23 +179,24 @@
   }
 
   /* ---------- enter project ---------- */
-  async function enter(info) {
+  async function enter(info, opts = {}) {
     if (!info) return;
     Object.assign(S, { dir: info.dir, base: info.base, name: info.name, pages: info.pages, hist: [], hi: -1 });
     $('#welcome').hidden = true;
     $('#app').hidden = false;
     $('#projName').textContent = info.name;
-    const bar = $('#remixBar');
-    if (bar && !info.meta) {
-      bar.hidden = false;
-      $('#remixBadge').textContent = 'ACTIVE SITE';
-      $('#remixTitle').textContent = info.name;
-      $('#remixMeta').textContent = '· Use 🔤 Swap Fonts, 🎨 Swap Colors, or 🪄 Steal Vibe on any page!';
-    }
+
+    // Keep Left, Right, and Remix panels closed unless requested by the user!
+    setLeftDrawerOpen(false);
+    setRightDrawerOpen(false);
+    setRemixBarOpen(!!opts.showRemix);
+
     renderPages();
     renderAddPanel();
     await refreshFontsAndAssets();
-    await loadPage(info.pages.includes('index.html') ? 'index.html' : info.pages[0]);
+    const targetPage = info.pages.includes('index.html') ? 'index.html' : info.pages[0];
+    const isHubProject = opts.forceLive || /multi-app-hub|apphub/i.test(info.name);
+    await loadPage(targetPage, { startLive: isHubProject });
   }
 
   async function refreshFontsAndAssets() {
@@ -322,10 +396,19 @@
     }
   }
 
-  async function loadPage(name) {
+  async function loadPage(name, opts = {}) {
     S.page = name; S.dirty = false; S.hist = []; S.hi = -1; S.sel = null;
     const html = await api.readPage(S.dir, name);
-    renderHtml(html);
+    const hasHub = /class=["'][^"']*myhtml-app-hub/i.test(html);
+    const goLive = opts.startLive !== undefined ? !!opts.startLive : hasHub;
+    S.live = goLive;
+    const prevBtn = $('#bPreview');
+    if (prevBtn) {
+      prevBtn.textContent = goLive ? '✎ Edit Page' : '▶ Live View';
+      prevBtn.classList.toggle('live-on', goLive);
+      prevBtn.classList.toggle('on', goLive);
+    }
+    renderHtml(html, goLive);
     renderPages();
     updateUi();
     $('#codeView').hidden = true;
@@ -352,64 +435,31 @@
 
   async function syncAllHubsInDoc() {
     if (!doc || !S.dir) return;
-    const hubs = [...doc.querySelectorAll('.myhtml-app-hub')];
+    let hubs = [...doc.querySelectorAll('.myhtml-app-hub')];
     if (!hubs.length) return;
     let diskApps = [];
     try { diskApps = (await api.listApps(S.dir)) || []; } catch {}
 
-    for (const hub of hubs) {
-      // Ensure the new topbar & stagebar buttons exist even on older saved Hub pages
-      const topActions = hub.querySelector('.myhtml-hub-topbar > div:last-child');
-      if (topActions && !topActions.querySelector('.myhtml-hub-btn-create')) {
-        const testB = topActions.querySelector('.myhtml-app-btn-test');
-        const createB = doc.createElement('button');
-        createB.type = 'button';
-        createB.className = 'myhtml-hub-btn-create';
-        createB.style.cssText = 'background:#ec4899;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;';
-        createB.title = 'Create a brand-new standalone .html app or paste HTML code right into the Hub!';
-        createB.textContent = '✨ + New .html App';
-        if (testB) topActions.insertBefore(createB, testB);
-        else topActions.appendChild(createB);
-      }
-      if (topActions && !topActions.querySelector('.myhtml-hub-btn-wasm')) {
-        const testB = topActions.querySelector('.myhtml-app-btn-test');
-        const wasmB = doc.createElement('button');
-        wasmB.type = 'button';
-        wasmB.className = 'myhtml-hub-btn-wasm';
-        wasmB.style.cssText = 'background:#f59e0b;color:#080c14;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:800;cursor:pointer;';
-        wasmB.title = 'Browse free WebAssembly (.wasm) apps, games, emulators & tools to bung into this Hub';
-        wasmB.textContent = '⚡ + Free WASM Apps';
-        if (testB) topActions.insertBefore(wasmB, testB);
-        else topActions.appendChild(wasmB);
-      }
-      const stageLeft = hub.querySelector('.myhtml-hub-stagebar > div:first-child');
-      if (stageLeft && !stageLeft.querySelector('.myhtml-hub-wasm-badge')) {
-        const wb = doc.createElement('span');
-        wb.className = 'myhtml-hub-wasm-badge';
-        wb.style.cssText = 'font-size:10px;background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid rgba(245,158,11,0.35);padding:2px 7px;border-radius:4px;font-family:monospace;font-weight:700;';
-        wb.textContent = '⚡ WASM NATIVE';
-        stageLeft.appendChild(wb);
-      }
-      const stageActions = hub.querySelector('.myhtml-hub-stagebar > div:last-child');
-      if (stageActions && !stageActions.querySelector('.myhtml-hub-edit-app')) {
-        const editB = doc.createElement('button');
-        editB.type = 'button';
-        editB.className = 'myhtml-hub-edit-app';
-        editB.style.cssText = 'background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;';
-        editB.title = 'View or edit the HTML code of this active app';
-        editB.textContent = '✎ Edit App .html';
-        stageActions.insertBefore(editB, stageActions.firstChild);
-      }
-      if (stageActions && !stageActions.querySelector('.myhtml-hub-remove-app')) {
-        const popA = stageActions.querySelector('.myhtml-hub-pop');
-        const remB = doc.createElement('button');
-        remB.type = 'button';
-        remB.className = 'myhtml-hub-remove-app';
-        remB.style.cssText = 'background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;';
-        remB.title = 'Remove this app from the Hub';
-        remB.textContent = '✕ Remove';
-        if (popA) stageActions.insertBefore(remB, popA);
-        else stageActions.appendChild(remB);
+    for (let i = 0; i < hubs.length; i++) {
+      let hub = hubs[i];
+      // Upgrade any legacy Hub with cluttered topbar/stagebar to the clean Side-Panel + Highlighted-Page layout
+      if (hub.querySelector('.myhtml-hub-topbar') || !hub.querySelector('.myhtml-hub-publish-app')) {
+        const prevApps = getHubApps(hub);
+        const prevRemoved = hub.getAttribute('data-removed-apps') || '';
+        const cleanHubBlock = BLOCKS.find((x) => x.id === 'app-hub');
+        if (cleanHubBlock) {
+          const tpl = doc.createElement('template');
+          tpl.innerHTML = cleanHubBlock.html.trim();
+          const newHub = tpl.content.firstElementChild;
+          if (prevRemoved) newHub.setAttribute('data-removed-apps', prevRemoved);
+          hub.replaceWith(newHub);
+          hub = newHub;
+          hubs[i] = newHub;
+          if (prevApps.length) {
+            const actIdx = Math.max(0, prevApps.findIndex((a) => a.active));
+            setHubApps(hub, prevApps, actIdx, true);
+          }
+        }
       }
 
       if (!diskApps.length) continue;
@@ -900,6 +950,15 @@
       openCommunityHub('wasm');
       return true;
     }
+    const hubPublishBtn = t.closest('.myhtml-hub-publish-app');
+    if (hubPublishBtn) {
+      e.preventDefault();
+      const hub = hubPublishBtn.closest('.myhtml-app-hub');
+      const apps = hub ? getHubApps(hub) : [];
+      const cur = apps.find((a) => a.active) || apps[0] || null;
+      openPublish(cur ? { mode: 'hubApp', hubApp: cur } : { mode: 'wholeSite' });
+      return true;
+    }
     const hubEditBtn = t.closest('.myhtml-hub-edit-app');
     if (hubEditBtn) {
       e.preventDefault();
@@ -1326,8 +1385,22 @@
 
   function topLevel(el) { while (el && el.parentElement !== doc.body) el = el.parentElement; return el; }
   function insertBlock(id, ref, after = true) {
-    if (!doc || S.live) return;
+    if (id === 'app-hub') {
+      openStandaloneAppHub();
+      return;
+    }
+    if (!doc) return;
+    if (S.live) {
+      // Automatically switch to Edit mode if adding a block
+      S.live = false;
+      const prevBtn = $('#bPreview');
+      if (prevBtn) {
+        prevBtn.textContent = '▶ Live View';
+        prevBtn.classList.remove('live-on', 'on');
+      }
+    }
     const b = BLOCKS.find((x) => x.id === id);
+    if (!b) return;
     const tpl = doc.createElement('template');
     tpl.innerHTML = b.html.trim();
     const node = tpl.content.firstElementChild;
@@ -1338,7 +1411,7 @@
     select(node);
     node.scrollIntoView({ behavior: 'smooth', block: 'center' });
     if (b.cat === 'Apps & Games') {
-      toast(`🎮 Added ${b.name}! Click "▶ Test App" at the top to try it live.`);
+      toast(`🎮 Added ${b.name}! Click "▶ Live View" at the top to try it live.`);
     } else {
       toast(b.name + ' added');
     }
@@ -1357,6 +1430,11 @@
   }
   function onDrop(e) {
     e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+      clearDrop();
+      handleExternalHtmlFileDrop(e);
+      return;
+    }
     const data = e.dataTransfer.getData('text/plain');
     const t = dropTarget(e);
     clearDrop();
@@ -1564,8 +1642,8 @@
           </div>
           <div class="muted small" style="font-size:10px;word-break:break-all;">${esc(app.relPath)}</div>
           <div class="app-item-actions">
-            <button class="btn small primary" data-act="hub" style="flex:1;" title="Add into Multi-App Hub or Page">+ Add to Hub / Page</button>
-            <button class="btn small ghost" data-act="box" title="Insert as standalone box">📦 Box</button>
+            <button class="btn small primary" data-act="hub" style="flex:1;" title="Add into Multi-App Hub">+ Hub</button>
+            <button class="btn small" data-act="pub" style="background:#10b981;color:#04130d;border-color:#10b981;font-weight:700;" title="Put this app online on the internet!">🚀 Put Online</button>
             <button class="btn small ghost" data-act="folder" title="Open files in Windows Explorer">📂</button>
           </div>
         </div>
@@ -1651,9 +1729,12 @@
 
     $$('.app-item-card', p).forEach((card) => {
       const app = apps[+card.dataset.ai];
-      $('[data-act="hub"]', card).onclick = () => addAppObjectToPageOrHub(app);
-      $('[data-act="box"]', card).onclick = () => insertImportedApp(app);
-      $('[data-act="folder"]', card).onclick = () => api.openFolder(app.fullDir);
+      const hubBtn = $('[data-act="hub"]', card);
+      if (hubBtn) hubBtn.onclick = () => addAppObjectToPageOrHub(app);
+      const pubBtn = $('[data-act="pub"]', card);
+      if (pubBtn) pubBtn.onclick = () => openPublish({ mode: 'hubApp', hubApp: { title: app.title, src: app.relPath, icon: app.icon || '📦' } });
+      const fldBtn = $('[data-act="folder"]', card);
+      if (fldBtn) fldBtn.onclick = () => api.openFolder(app.fullDir);
     });
 
     const imgBtn = $('#bImportImg');
@@ -1685,10 +1766,25 @@
 
   /* ---------- pages ---------- */
   function renderPages() {
-    $('#p-pages').innerHTML = S.pages.map((p) => `<div class="row ${p === S.page ? 'on' : ''}" data-p="${esc(p)}">📄 ${esc(p)}${p !== 'index.html' ? '<span class="x" data-del="1" title="Delete">✕</span>' : ''}</div>`).join('') +
-      '<button class="btn full" id="newPage">+ Add New Page</button>';
+    $('#p-pages').innerHTML =
+      S.pages.map((p) => `
+        <div class="row ${p === S.page ? 'on' : ''}" data-p="${esc(p)}" style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(p)}</span>
+          <span style="display:flex;align-items:center;gap:4px;">
+            <button type="button" class="btn small" data-pub="1" style="padding:1px 6px;font-size:10px;background:#10b981;color:#04130d;border:0;font-weight:700;" title="Put this page online">🚀</button>
+            ${p !== 'index.html' ? '<span class="x" data-del="1" title="Delete">✕</span>' : ''}
+          </span>
+        </div>`).join('') +
+      '<button class="btn primary full" id="newPage">+ Add Clean Page</button>' +
+      '<button class="btn full" id="openHtmlPageBtn" style="margin-top:6px;">📄 Open .html File from PC</button>';
     $$('#p-pages .row').forEach((r) => (r.onclick = async (e) => {
+      if (e.target.dataset.pub) {
+        e.stopPropagation();
+        openPublish({ mode: 'singlePage', pageName: r.dataset.p });
+        return;
+      }
       if (e.target.dataset.del) {
+        e.stopPropagation();
         if (await api.deletePage(S.dir, r.dataset.p)) {
           S.pages = (await api.projectInfo(S.dir)).pages;
           renderPages();
@@ -1698,15 +1794,17 @@
       }
       if (r.dataset.p !== S.page) { await autosave(); loadPage(r.dataset.p); }
     }));
+    const openHtmlBtn = $('#openHtmlPageBtn');
+    if (openHtmlBtn) openHtmlBtn.onclick = openStandaloneHtmlFile;
     $('#newPage').onclick = async () => {
-      const v = await ask('Add a New Page', [{ label: 'Page name (e.g. about or contact)', placeholder: 'about' }]);
+      const v = await ask('Add a Clean New Page', [{ label: 'Page name (e.g. about or contact)', placeholder: 'about' }]);
       if (!v || !v[0]) return;
       try {
-        const html = makePage(v[0], ['nav', 'footer'].map((id) => BLOCKS.find((b) => b.id === id).html).join('\n'));
+        const html = TEMPLATES.blank.html();
         const name = await api.createPage(S.dir, v[0], html);
         S.pages = (await api.projectInfo(S.dir)).pages;
         await autosave();
-        await loadPage(name);
+        await loadPage(name, { startLive: false });
       } catch (e) { toast(cleanErr(e)); }
     };
   }
@@ -2281,63 +2379,302 @@
     });
   }
 
-  /* ---------- publish (Netlify) ---------- */
-  let pub = { info: null, mode: 'ready' };
-  async function openPublish() {
-    if (!S.dir) return;
-    await autosave();
+  /* ---------- 1-Click Web Publisher (Any .html File, Any Hub Page, or Whole Site) ---------- */
+  let pub = {
+    info: null,
+    provider: 'github',
+    targetMode: 'wholeSite', // 'hubApp' | 'file' | 'singlePage' | 'wholeSite'
+    hubApps: [],
+    selectedHubSrc: '',
+    pickedFile: null, // { filePath, fileName, defaultName }
+    selectedPage: '',
+    customName: '',
+    step: 'ready' // 'ready' | 'connectNetlify' | 'done'
+  };
+
+  async function openPublish(initOpts = {}) {
+    if (S.dir) await autosave();
     pub.info = await api.publishInfo(S.dir);
-    pub.mode = pub.info.hasToken ? 'ready' : 'connect';
+    pub.provider = pub.info.hasGithubToken ? 'github' : (pub.info.hasNetlifyToken ? 'netlify' : 'github');
+
+    // Detect if current page has a Multi-App Hub and gather its apps
+    const hub = doc && doc.querySelector('.myhtml-app-hub');
+    pub.hubApps = hub ? getHubApps(hub) : [];
+    const activeHubApp = (initOpts.hubApp) || pub.hubApps.find((a) => a.active) || pub.hubApps[0] || null;
+    pub.selectedHubSrc = activeHubApp ? activeHubApp.src : '';
+
+    if (initOpts.pickedFile) {
+      pub.pickedFile = initOpts.pickedFile;
+      pub.targetMode = 'file';
+      pub.customName = initOpts.pickedFile.defaultName || '';
+    } else if (initOpts.mode === 'file') {
+      pub.targetMode = 'file';
+    } else if (initOpts.mode === 'hubApp' && pub.hubApps.length) {
+      pub.targetMode = 'hubApp';
+      pub.customName = (activeHubApp ? activeHubApp.title : 'my-app').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+    } else if (initOpts.mode === 'singlePage' && initOpts.pageName) {
+      pub.targetMode = 'singlePage';
+      pub.selectedPage = initOpts.pageName;
+      pub.customName = initOpts.pageName.replace(/\.html?$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    } else if (pub.hubApps.length) {
+      // If user is in the Multi-App Hub, default to publishing their currently highlighted page!
+      pub.targetMode = 'hubApp';
+      pub.customName = (activeHubApp ? activeHubApp.title : 'my-app').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+    } else if (S.dir) {
+      pub.targetMode = 'singlePage';
+      pub.selectedPage = S.page || 'index.html';
+      pub.customName = (S.name || 'my-page').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+    } else {
+      pub.targetMode = 'file';
+    }
+
+    pub.step = (pub.provider === 'netlify' && !pub.info.hasNetlifyToken) ? 'connectNetlify' : 'ready';
     $('#pubModal').hidden = false;
     renderPublish();
   }
+
   function renderPublish(result) {
-    const body = $('#pubBody'), go = $('#pubGo'), i = pub.info;
-    $('#pubErr').textContent = ''; $('#pubLog').hidden = true; $('#pubLog').textContent = '';
-    go.hidden = false; go.disabled = false;
-    if (pub.mode === 'connect') {
-      body.innerHTML = `<p class="muted small">Put your website online on <b>Netlify</b> for free with one click. One-time setup:</p>
-        <ol class="steps small"><li>Create a free account at Netlify.</li><li>Click <b>Get Token</b> below, press <b>New access token</b>, and copy it.</li><li>Paste it here.</li></ol>
-        <button class="btn" id="pubGet">🔑 Get Token (opens Netlify)</button>
-        <label>Paste token<input id="pubToken" type="password" placeholder="Netlify access token" spellcheck="false"></label>`;
-      go.textContent = 'Connect';
-      $('#pubGet').onclick = () => api.openExternal('https://app.netlify.com/user/applications#personal-access-tokens');
-    } else if (pub.mode === 'done') {
-      body.innerHTML = `<p>🎉 <b>Your website is live online!</b></p>
-        <div class="liveurl">${esc(result.url)}</div>
-        <div class="tools"><button class="btn" id="pubOpen">🌍 Open Website</button><button class="btn" id="pubCopy">📋 Copy Link</button></div>`;
+    const body = $('#pubBody'), go = $('#pubGo'), i = pub.info || {};
+    $('#pubErr').textContent = '';
+    $('#pubLog').hidden = true;
+    $('#pubLog').textContent = '';
+    go.hidden = false;
+    go.disabled = false;
+
+    if (pub.step === 'done' && result) {
+      const mainUrl = result.instantUrl || result.url;
+      body.innerHTML = `
+        <div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
+          <div style="font-size:15px;font-weight:800;color:#34d399;margin-bottom:6px;">🎉 Your HTML Page is Live on the Internet!</div>
+          ${result.instantUrl ? `
+            <div class="muted small" style="margin-bottom:4px;">⚡ <b>Instant Live Link (Works immediately!):</b></div>
+            <div class="liveurl" style="margin-bottom:8px;">${esc(result.instantUrl)}</div>
+            <div class="tools" style="margin-bottom:10px;">
+              <button class="btn primary" id="pubOpenInstant">⚡ Open Instant Webpage</button>
+              <button class="btn" id="pubCopyInstant">📋 Copy Instant Link</button>
+            </div>
+          ` : ''}
+          ${result.url ? `
+            <div class="muted small" style="margin-bottom:4px;">🌍 <b>Permanent Website Address (${result.provider === 'github' ? 'GitHub Pages HTTPS — ready in ~20s' : 'Netlify HTTPS'}):</b></div>
+            <div class="liveurl" style="margin-bottom:8px;">${esc(result.url)}</div>
+            <div class="tools">
+              <button class="btn" id="pubOpenPerm">🌍 Open Permanent URL</button>
+              <button class="btn" id="pubCopyPerm">📋 Copy Permanent Link</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
       go.hidden = true;
-      $('#pubOpen').onclick = () => api.openExternal(result.url);
-      $('#pubCopy').onclick = () => { navigator.clipboard.writeText(result.url); toast('Link copied'); };
-    } else {
-      body.innerHTML = i.url
-        ? `<p class="muted small">This site is already live online. Publishing will update it.</p><div class="liveurl">${esc(i.url)}</div>`
-        : `<p class="muted small">Choose an address for your website (optional). Leave blank for auto-generated name.</p>
-           <label>Website address<div class="path"><input id="pubName" type="text" placeholder="my-awesome-site" spellcheck="false"><span class="suffix">.netlify.app</span></div></label>`;
-      body.innerHTML += '<p class="muted small" style="margin-top:12px;"><a href="#" id="pubForget">Disconnect from Netlify</a></p>';
-      go.textContent = i.url ? 'Publish Update' : 'Put Online Now';
-      $('#pubForget').onclick = async (e) => { e.preventDefault(); await api.publishForget(); pub.mode = 'connect'; renderPublish(); };
+      if ($('#pubOpenInstant')) $('#pubOpenInstant').onclick = () => api.openExternal(result.instantUrl);
+      if ($('#pubCopyInstant')) $('#pubCopyInstant').onclick = () => { navigator.clipboard.writeText(result.instantUrl); toast('Instant link copied!'); };
+      if ($('#pubOpenPerm')) $('#pubOpenPerm').onclick = () => api.openExternal(result.url);
+      if ($('#pubCopyPerm')) $('#pubCopyPerm').onclick = () => { navigator.clipboard.writeText(result.url); toast('Permanent link copied!'); };
+      return;
+    }
+
+    if (pub.step === 'connectNetlify') {
+      body.innerHTML = `
+        <p class="muted small">Connect a free <b>Netlify</b> account, or switch back to <b>1-Click GitHub Hosting</b>:</p>
+        <ol class="steps small">
+          <li>Log in at Netlify and click <b>Get Token</b> below.</li>
+          <li>Press <b>New access token</b>, copy it, and paste it below.</li>
+        </ol>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <button class="btn" id="pubGet">🔑 Get Token (opens Netlify)</button>
+          ${i.hasGithubToken ? `<button class="btn primary" id="pubSwitchGh">⚡ Use Instant GitHub Hosting Instead</button>` : ''}
+        </div>
+        <label>Paste Netlify token<input id="pubToken" type="password" placeholder="Netlify personal access token" spellcheck="false"></label>
+      `;
+      go.textContent = 'Connect Netlify';
+      $('#pubGet').onclick = () => api.openExternal('https://app.netlify.com/user/applications#personal-access-tokens');
+      if ($('#pubSwitchGh')) {
+        $('#pubSwitchGh').onclick = () => { pub.provider = 'github'; pub.step = 'ready'; renderPublish(); };
+      }
+      return;
+    }
+
+    const cardStyle = (active) =>
+      `display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:9px;border:1.5px solid ${active ? '#10b981' : 'var(--line)'};background:${active ? 'rgba(16,185,129,0.11)' : 'var(--card)'};cursor:pointer;margin-bottom:7px;transition:0.12s;`;
+
+    body.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:7px;">1. Choose What to Put Online:</div>
+
+        ${pub.hubApps.length ? `
+          <div data-pub-mode="hubApp" style="${cardStyle(pub.targetMode === 'hubApp')}">
+            <input type="radio" name="pubMode" ${pub.targetMode === 'hubApp' ? 'checked' : ''} style="margin-top:3px;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;font-size:12.5px;color:var(--text);">🎯 A Single Page / App from Your Multi-App Hub</div>
+              <div class="muted small" style="margin-bottom:6px;">Uploads just the selected page/app as its own standalone website:</div>
+              <select id="pubHubAppSelect" style="width:100%;padding:6px 8px;border-radius:6px;background:var(--panel);border:1px solid var(--line);font-size:12px;">
+                ${pub.hubApps.map((a) => `<option value="${esc(a.src)}" ${a.src === pub.selectedHubSrc ? 'selected' : ''}>${esc(a.icon || '📦')} ${esc(a.title)} (${esc(a.src)})</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        ` : ''}
+
+        <div data-pub-mode="file" style="${cardStyle(pub.targetMode === 'file')}">
+          <input type="radio" name="pubMode" ${pub.targetMode === 'file' ? 'checked' : ''} style="margin-top:3px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:12.5px;color:var(--text);">📄 Any .html File from a Folder on Your PC</div>
+            <div class="muted small" style="margin-bottom:6px;">Pick any <code>.html</code> file sitting in any folder on your computer and put it straight onto the internet:</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn primary small" id="pubBrowseFileBtn" style="padding:5px 10px;">📂 Choose .html File from PC…</button>
+              <span class="small" style="font-family:monospace;color:${pub.pickedFile ? '#34d399' : 'var(--muted)'};">
+                ${pub.pickedFile ? `✓ ${esc(pub.pickedFile.fileName)}` : 'No file selected yet'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        ${S.dir ? `
+          <div data-pub-mode="singlePage" style="${cardStyle(pub.targetMode === 'singlePage')}">
+            <input type="radio" name="pubMode" ${pub.targetMode === 'singlePage' ? 'checked' : ''} style="margin-top:3px;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;font-size:12.5px;color:var(--text);">📃 Current Open Page (${esc(S.page || 'index.html')})</div>
+              <div class="muted small">Publishes the page currently open in the editor.</div>
+            </div>
+          </div>
+          <div data-pub-mode="wholeSite" style="${cardStyle(pub.targetMode === 'wholeSite')}">
+            <input type="radio" name="pubMode" ${pub.targetMode === 'wholeSite' ? 'checked' : ''} style="margin-top:3px;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;font-size:12.5px;color:var(--text);">🌐 Entire Website / Full Multi-App Hub (${esc(S.name)})</div>
+              <div class="muted small">Uploads all pages and apps in this project together as one complete website.</div>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label style="margin:0;">2. Webpage Name (optional)
+          <div class="path">
+            <input id="pubName" type="text" value="${esc(pub.customName)}" placeholder="my-cool-page" spellcheck="false">
+            <span class="suffix">${pub.provider === 'github' ? `.github.io` : `.netlify.app`}</span>
+          </div>
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 11px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font-size:11px;">
+        <span>
+          ${pub.provider === 'github' && i.hasGithubToken
+            ? `⚡ <b>Instant Hosting Ready</b> (Connected to GitHub as <b>${esc(i.githubUser || 'your account')}</b>)`
+            : `🌐 Hosting via <b>Netlify</b>`}
+        </span>
+        <a href="#" id="pubSwitchProvider" style="color:var(--accent);text-decoration:none;font-weight:600;">
+          ${pub.provider === 'github' ? 'Switch to Netlify' : 'Switch to GitHub'}
+        </a>
+      </div>
+    `;
+
+    go.textContent = '🚀 Put Online Now';
+
+    $$('[data-pub-mode]', body).forEach((card) => {
+      card.onclick = (e) => {
+        if (e.target.tagName === 'SELECT' || e.target.tagName === 'BUTTON') return;
+        const m = card.getAttribute('data-pub-mode');
+        pub.targetMode = m;
+        if (m === 'hubApp') {
+          const found = pub.hubApps.find((a) => a.src === pub.selectedHubSrc) || pub.hubApps[0];
+          if (found) pub.customName = found.title.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+        } else if (m === 'file' && pub.pickedFile) {
+          pub.customName = pub.pickedFile.defaultName;
+        } else if (m === 'singlePage' || m === 'wholeSite') {
+          pub.customName = (S.name || 'my-site').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+        }
+        renderPublish();
+      };
+    });
+
+    const hubSel = $('#pubHubAppSelect', body);
+    if (hubSel) {
+      hubSel.onchange = (e) => {
+        pub.targetMode = 'hubApp';
+        pub.selectedHubSrc = e.target.value;
+        const found = pub.hubApps.find((a) => a.src === pub.selectedHubSrc);
+        if (found) pub.customName = found.title.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+        renderPublish();
+      };
+    }
+
+    const browseBtn = $('#pubBrowseFileBtn', body);
+    if (browseBtn) {
+      browseBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const picked = await api.pickHtmlFileForPublish();
+        if (picked) {
+          pub.pickedFile = picked;
+          pub.targetMode = 'file';
+          pub.customName = picked.defaultName;
+          renderPublish();
+        }
+      };
+    }
+
+    const nameInp = $('#pubName', body);
+    if (nameInp) {
+      nameInp.oninput = (e) => { pub.customName = e.target.value.trim(); };
+    }
+
+    const sw = $('#pubSwitchProvider', body);
+    if (sw) {
+      sw.onclick = (e) => {
+        e.preventDefault();
+        if (pub.provider === 'github') {
+          pub.provider = 'netlify';
+          pub.step = i.hasNetlifyToken ? 'ready' : 'connectNetlify';
+        } else {
+          pub.provider = 'github';
+          pub.step = 'ready';
+        }
+        renderPublish();
+      };
     }
   }
-  $('#bPublish').onclick = openPublish;
+
+  $('#bPublish').onclick = () => openPublish();
   $('#pubClose').onclick = () => ($('#pubModal').hidden = true);
   api.onPublishProgress((m) => { const l = $('#pubLog'); l.hidden = false; l.textContent += m + '\n'; l.scrollTop = l.scrollHeight; });
   $('#pubGo').onclick = async () => {
-    const go = $('#pubGo'), err = $('#pubErr'); err.textContent = ''; go.disabled = true;
+    const go = $('#pubGo'), err = $('#pubErr');
+    err.textContent = '';
+    go.disabled = true;
     try {
-      if (pub.mode === 'connect') {
+      if (pub.step === 'connectNetlify') {
         go.textContent = 'Checking…';
         await api.publishSetToken($('#pubToken').value);
-        pub.info = await api.publishInfo(S.dir); pub.mode = 'ready'; renderPublish();
+        pub.info = await api.publishInfo(S.dir);
+        pub.provider = 'netlify';
+        pub.step = 'ready';
+        renderPublish();
       } else {
-        go.textContent = 'Publishing…';
+        if (pub.targetMode === 'file' && !pub.pickedFile) {
+          const picked = await api.pickHtmlFileForPublish();
+          if (!picked) {
+            go.disabled = false;
+            return;
+          }
+          pub.pickedFile = picked;
+          if (!pub.customName) pub.customName = picked.defaultName;
+        }
+        go.textContent = '⏳ Uploading to the internet…';
         const nameEl = $('#pubName');
-        const r = await api.publishRun(S.dir, { name: nameEl ? nameEl.value.trim() : '' });
-        pub.mode = 'done'; renderPublish(r);
+        const nameVal = nameEl ? nameEl.value.trim() : pub.customName;
+        const r = await api.publishRun(S.dir, {
+          provider: pub.provider,
+          mode: pub.targetMode,
+          projectDir: S.dir,
+          filePath: pub.pickedFile ? pub.pickedFile.filePath : null,
+          appRelPath: pub.selectedHubSrc || null,
+          pageName: pub.selectedPage || S.page || 'index.html',
+          name: nameVal
+        });
+        pub.step = 'done';
+        renderPublish(r);
       }
     } catch (e) {
-      err.textContent = cleanErr(e); go.disabled = false;
-      go.textContent = pub.mode === 'connect' ? 'Connect' : 'Put Online Now';
+      err.textContent = cleanErr(e);
+      go.disabled = false;
+      go.textContent = pub.step === 'connectNetlify' ? 'Connect Netlify' : '🚀 Put Online Now';
     }
   };
 
@@ -2389,14 +2726,9 @@
     toast(`⏳ Downloading "${item.title}" into your Multi-App Hub…`);
     try {
       await autosave();
-      // If no project is currently open, create or open a Multi-App Hub project first!
-      if (!S.dir) {
-        const p = await api.newProject({
-          name: 'Multi-App Hub',
-          template: 'apphub',
-          html: TEMPLATES.apphub
-        });
-        await enter(p);
+      // Always open the standalone Multi-App Hub if not already inside it so apps never blend into another template!
+      if (!S.dir || !doc || !doc.querySelector('.myhtml-app-hub')) {
+        await openStandaloneAppHub();
       }
       let res = null;
       if (item.wasm4Slug) {
@@ -3591,6 +3923,103 @@
       toast(`✨ Saved "${saved.title}" into your Multi-App Hub!`);
     };
   }
+
+  /* ---------- Instant .html Drag & Drop Quick-Launcher (Unexpected Bonus!) ---------- */
+  function handleExternalHtmlFileDrop(e) {
+    const files = [...(e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files : [])];
+    const htmlFiles = files.filter((f) => /\.html?$/i.test(f.name || ''));
+    if (!htmlFiles.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const first = htmlFiles[0];
+    const filePath = (api.getPathForFile && api.getPathForFile(first)) || first.path || '';
+    if (!filePath) return;
+    const allPaths = htmlFiles.map((f) => (api.getPathForFile && api.getPathForFile(f)) || f.path || '').filter(Boolean);
+    const defaultName = first.name.replace(/\.html?$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'my-page';
+
+    let bar = document.getElementById('htmlDropActionBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'htmlDropActionBar';
+      bar.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:99999;background:#0f172a;border:2px solid #10b981;border-radius:14px;padding:14px 18px;box-shadow:0 24px 60px rgba(0,0,0,0.75);display:flex;align-items:center;gap:14px;flex-wrap:wrap;max-width:94vw;';
+      document.body.appendChild(bar);
+    }
+
+    bar.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:22px;">📄</span>
+        <div>
+          <div style="font-weight:800;font-size:13px;color:#f8fafc;">Dropped: ${esc(htmlFiles.length > 1 ? `${htmlFiles.length} .html files (${first.name}…)` : first.name)}</div>
+          <div style="font-size:11px;color:#94a3b8;">What would you like to do with this .html file?</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button type="button" id="dropActPublish" class="btn" style="background:#10b981;border-color:#10b981;color:#04130d;font-weight:800;">🚀 Put Online Now</button>
+        <button type="button" id="dropActOpen" class="btn primary" style="font-weight:700;">📄 Open &amp; Edit Full Screen</button>
+        <button type="button" id="dropActHub" class="btn" style="background:rgba(16,185,129,0.14);border-color:rgba(16,185,129,0.4);color:#34d399;font-weight:700;">🧰 Bung in Multi-App Hub</button>
+        <button type="button" id="dropActClose" class="btn ghost small">✕</button>
+      </div>
+    `;
+    bar.hidden = false;
+
+    $('#dropActClose', bar).onclick = () => { bar.hidden = true; };
+    $('#dropActPublish', bar).onclick = () => {
+      bar.hidden = true;
+      openPublish({
+        mode: 'file',
+        pickedFile: {
+          filePath,
+          fileName: first.name,
+          defaultName
+        }
+      });
+    };
+    $('#dropActOpen', bar).onclick = async () => {
+      bar.hidden = true;
+      await autosave();
+      const p = await api.openHtmlFile(filePath);
+      if (p) {
+        await enter(p);
+        toast(`📄 Opened ${p.name}.html`);
+      }
+    };
+    $('#dropActHub', bar).onclick = async () => {
+      bar.hidden = true;
+      await autosave();
+      if (!S.dir || !doc || !doc.querySelector('.myhtml-app-hub')) {
+        await openStandaloneAppHub();
+      }
+      const res = await api.importAppFile(S.dir, allPaths);
+      const hub = doc && doc.querySelector('.myhtml-app-hub');
+      if (res && res.success && hub) {
+        const incoming = res.apps && res.apps.length ? res.apps : [res];
+        const existing = getHubApps(hub);
+        let activeIdx = existing.length;
+        for (const item of incoming) {
+          unmarkRemovedFromHub(hub, item.relPath);
+          const foundIdx = existing.findIndex((x) => x.src === item.relPath);
+          const entry = { title: item.title, src: item.relPath, icon: item.icon || '📄' };
+          if (foundIdx >= 0) { existing[foundIdx] = entry; activeIdx = foundIdx; }
+          else { existing.push(entry); activeIdx = existing.length - 1; }
+        }
+        setHubApps(hub, existing, activeIdx, true);
+        refreshFontsAndAssets();
+        toast(`🧰 Bunged ${incoming.length} .html file${incoming.length === 1 ? '' : 's'} into your Multi-App Hub!`);
+      }
+    };
+  }
+
+  window.addEventListener('dragover', (e) => {
+    if (e.dataTransfer && e.dataTransfer.types && [...e.dataTransfer.types].includes('Files')) {
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('drop', (e) => {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+      handleExternalHtmlFileDrop(e);
+    }
+  });
 
   /* ---------- start app ---------- */
   initWelcome();

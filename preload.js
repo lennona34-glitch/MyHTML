@@ -1,8 +1,16 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const inv = (c) => (...a) => ipcRenderer.invoke(c, ...a);
 contextBridge.exposeInMainWorld('api', {
+  getPathForFile: (file) => {
+    try {
+      return (webUtils && webUtils.getPathForFile) ? webUtils.getPathForFile(file) : (file && file.path) || '';
+    } catch {
+      return (file && file.path) || '';
+    }
+  },
   createProject: inv('project:create'),
   openProject: inv('project:open'),
+  openHtmlFile: inv('project:openHtmlFile'),
   projectInfo: inv('project:info'),
   readPage: inv('page:read'),
   writePage: inv('page:write'),
@@ -38,6 +46,7 @@ contextBridge.exposeInMainWorld('api', {
   rollFreshTemplate: inv('templates:rollFresh'),
   cloneCommunityTemplate: inv('templates:cloneCommunity'),
   publishInfo: inv('publish:info'),
+  pickHtmlFileForPublish: inv('publish:pickHtmlFile'),
   publishSetToken: inv('publish:setToken'),
   publishForget: inv('publish:forget'),
   publishRun: inv('publish:run'),

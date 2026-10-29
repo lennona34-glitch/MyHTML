@@ -118,13 +118,16 @@ ipcMain.handle('project:create', async (_, { template, customDir }) => {
   fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
   ensureStarterApps(dir);
   const indexFile = path.join(dir, 'index.html');
-  if (!fs.existsSync(indexFile) || template !== 'apphub') {
+  const needsHubCleanUpgrade =
+    template === 'apphub' &&
+    fs.existsSync(indexFile) &&
+    fs.readFileSync(indexFile, 'utf8').includes('myhtml-hub-topbar');
+  if (!fs.existsSync(indexFile) || template !== 'apphub' || needsHubCleanUpgrade) {
     const t = TEMPLATES[template] || TEMPLATES.blank;
     fs.writeFileSync(indexFile, t.html());
   }
   return info(dir);
 });
-
 
 ipcMain.handle('project:open', async () => {
   const dir = await pickFolder('Open a website folder');
@@ -132,6 +135,46 @@ ipcMain.handle('project:open', async () => {
   const i = info(dir);
   if (!i.pages.length) { dialog.showErrorBox('No pages found', 'That folder has no .html files.'); return null; }
   return i;
+});
+
+ipcMain.handle('project:openHtmlFile', async (_, directFilePath) => {
+  let srcFile = directFilePath && typeof directFilePath === 'string' && fs.existsSync(directFilePath) ? directFilePath : null;
+  if (!srcFile) {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Open a .html Web Page File',
+      properties: ['openFile'],
+      filters: [{ name: 'HTML Web Pages', extensions: ['html', 'htm'] }],
+      buttonLabel: 'Open .html Page'
+    });
+    if (r.canceled || !r.filePaths.length) return null;
+    srcFile = r.filePaths[0];
+  }
+  const rawBase = path.basename(srcFile, path.extname(srcFile));
+  const cleanFolder = rawBase.replace(/[<>:"/\\|?*]+/g, '-').trim() || 'opened-page';
+  const base = path.join(app.getPath('documents'), 'MyHTML Sites');
+  fs.mkdirSync(base, { recursive: true });
+  let dir = path.join(base, cleanFolder), n = 2;
+  while (fs.existsSync(dir) && fs.readdirSync(dir).length) {
+    dir = path.join(base, `${cleanFolder}-${n++}`);
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
+  fs.copyFileSync(srcFile, path.join(dir, 'index.html'));
+  // Copy sibling local assets referenced by this HTML file so local images/CSS/JS work seamlessly
+  try {
+    const htmlContent = fs.readFileSync(srcFile, 'utf8');
+    const srcParent = path.dirname(srcFile);
+    for (const ent of fs.readdirSync(srcParent, { withFileTypes: true })) {
+      if (ent.name === path.basename(srcFile) || ent.name.startsWith('.')) continue;
+      if (htmlContent.includes(ent.name) && !ent.isDirectory()) {
+        const s = path.join(srcParent, ent.name);
+        if (fs.statSync(s).size < 15 * 1024 * 1024) {
+          fs.copyFileSync(s, path.join(dir, ent.name));
+        }
+      }
+    }
+  } catch {}
+  return info(dir);
 });
 ipcMain.handle('project:info', (_, dir) => info(dir));
 ipcMain.handle('page:read', (_, dir, name) => fs.readFileSync(path.join(dir, safeName(name)), 'utf8'));
@@ -215,17 +258,21 @@ ipcMain.handle('app:importBulk', async (_, projectDir) => {
   return { ...apps[0], apps, bulkCount: apps.length };
 });
 
-ipcMain.handle('app:importFile', async (_, projectDir) => {
-  const r = await dialog.showOpenDialog(win, {
-    title: 'Choose one or more .html App Files',
-    properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'HTML Apps & Pages', extensions: ['html', 'htm'] }],
-    buttonLabel: 'Import .html App(s)'
-  });
-  if (r.canceled || !r.filePaths.length) return null;
+ipcMain.handle('app:importFile', async (_, projectDir, directFilePaths) => {
+  let filePaths = Array.isArray(directFilePaths) ? directFilePaths.filter((p) => p && fs.existsSync(p)) : [];
+  if (!filePaths.length) {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Choose one or more .html App Files',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'HTML Apps & Pages', extensions: ['html', 'htm'] }],
+      buttonLabel: 'Import .html App(s)'
+    });
+    if (r.canceled || !r.filePaths.length) return null;
+    filePaths = r.filePaths;
+  }
 
   const apps = [];
-  for (const filePath of r.filePaths) {
+  for (const filePath of filePaths) {
     const imported = importSingleHtmlFile(filePath, projectDir);
     if (imported) apps.push(imported);
   }
@@ -391,33 +438,6 @@ ipcMain.handle('assets:list', (_, dir) => {
   return res;
 });
 
-/* ---------- publishing (Netlify) ---------- */
-const { publish, checkToken, readMeta } = require('./publisher');
-const tokenFile = () => path.join(app.getPath('userData'), 'netlify-token.bin');
-function loadToken() {
-  try {
-    const raw = fs.readFileSync(tokenFile());
-    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-  } catch { return null; }
-}
-ipcMain.handle('publish:info', (_, dir) => {
-  const m = readMeta(dir);
-  return { hasToken: !!loadToken(), url: m.url || null, adminUrl: m.adminUrl || null };
-});
-ipcMain.handle('publish:setToken', async (_, token) => {
-  token = String(token || '').trim();
-  if (!token) throw new Error('Please paste your Netlify token.');
-  await checkToken(token);
-  fs.writeFileSync(tokenFile(), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : token);
-  return true;
-});
-ipcMain.handle('publish:forget', () => { try { fs.unlinkSync(tokenFile()); } catch {} return true; });
-ipcMain.handle('publish:run', async (e, dir, opts) => {
-  const token = loadToken();
-  if (!token) throw new Error('Not connected to Netlify yet.');
-  return publish(dir, token, opts, (m) => e.sender.send('publish:progress', m));
-});
-
 /* ---------- Community Templates & Instant Generator ---------- */
 const { execSync } = require('child_process');
 const ghTokenFile = () => path.join(app.getPath('userData'), 'github-token.bin');
@@ -437,6 +457,83 @@ function loadGhToken() {
   }
   return cachedGitCredToken;
 }
+
+/* ---------- publishing (GitHub Instant Pages/Gist + Netlify) ---------- */
+const { publishViaNetlify, publishViaGithub, getGithubUser, checkToken, readMeta } = require('./publisher');
+const tokenFile = () => path.join(app.getPath('userData'), 'netlify-token.bin');
+function loadToken() {
+  try {
+    const raw = fs.readFileSync(tokenFile());
+    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
+  } catch { return null; }
+}
+
+let cachedGhUsername = null;
+ipcMain.handle('publish:info', async (_, dir) => {
+  const m = dir ? readMeta(dir) : {};
+  const ghTok = loadGhToken();
+  if (ghTok && !cachedGhUsername) {
+    cachedGhUsername = await getGithubUser(ghTok);
+  }
+  return {
+    hasToken: !!loadToken(),
+    hasNetlifyToken: !!loadToken(),
+    hasGithubToken: !!ghTok,
+    githubUser: cachedGhUsername || null,
+    url: m.url || null,
+    instantUrl: m.instantUrl || null,
+    repoUrl: m.repoUrl || null,
+    adminUrl: m.adminUrl || null,
+    provider: m.provider || (ghTok ? 'github' : 'netlify')
+  };
+});
+
+ipcMain.handle('publish:pickHtmlFile', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Choose a .html File from Your Computer to Put Online',
+    properties: ['openFile'],
+    filters: [{ name: 'HTML Web Pages', extensions: ['html', 'htm'] }],
+    buttonLabel: 'Select .html File'
+  });
+  if (r.canceled || !r.filePaths.length) return null;
+  const filePath = r.filePaths[0];
+  const fileName = path.basename(filePath);
+  const defaultName = path.basename(filePath, path.extname(filePath))
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'my-page';
+  return { filePath, fileName, defaultName };
+});
+
+ipcMain.handle('publish:setToken', async (_, token) => {
+  token = String(token || '').trim();
+  if (!token) throw new Error('Please paste your Netlify token.');
+  await checkToken(token);
+  fs.writeFileSync(tokenFile(), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : token);
+  return true;
+});
+ipcMain.handle('publish:forget', () => { try { fs.unlinkSync(tokenFile()); } catch {} return true; });
+ipcMain.handle('publish:run', async (e, dir, opts = {}) => {
+  const send = (m) => e.sender.send('publish:progress', m);
+  const provider = opts.provider || (loadGhToken() ? 'github' : 'netlify');
+  const fullOpts = {
+    mode: opts.mode || (dir ? 'wholeSite' : 'file'),
+    projectDir: dir || opts.projectDir || null,
+    filePath: opts.filePath || null,
+    appRelPath: opts.appRelPath || null,
+    pageName: opts.pageName || null,
+    name: opts.name || ''
+  };
+  if (provider === 'github') {
+    const ghTok = loadGhToken();
+    if (!ghTok) throw new Error('GitHub is not connected yet. Connect a GitHub token or switch to Netlify.');
+    return publishViaGithub(ghTok, fullOpts, send);
+  } else {
+    const token = loadToken();
+    if (!token) throw new Error('Not connected to Netlify yet.');
+    return publishViaNetlify(token, fullOpts, send);
+  }
+});
 
 ipcMain.handle('templates:catalog', () => ({
   curated: CURATED_LIVE_TEMPLATES,

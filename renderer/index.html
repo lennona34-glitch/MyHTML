@@ -14,11 +14,22 @@
       <button class="icon fsBtn" title="Full screen (F11)">⛶</button>
     </div>
     <div class="logo big"><img src="icon.png" alt=""> MyHTML</div>
-    <p class="tag">Build web pages & copy any website from the web. No coding required!</p>
+    <p class="tag">A big, easy HTML creator, editor &amp; 1-click web publisher. No coding required!</p>
+
+    <!-- Primary Action Bar: Open .html File, Put .html Online, or Open App Hub -->
+    <div class="clone-box" style="background:linear-gradient(135deg, rgba(16,185,129,0.16), rgba(79,70,229,0.16));border-color:rgba(16,185,129,0.45);padding:16px;">
+      <div style="font-weight:700;font-size:13.5px;color:var(--text);margin-bottom:4px;">⚡ Quick Actions — Open or Upload Any .html Page</div>
+      <div class="muted small" style="margin-bottom:12px;">Pick any <code>.html</code> file from a folder on your PC to edit full-screen, bung it into your Multi-App Hub, or put it live on the internet in 1 click.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));gap:8px;">
+        <button class="btn" id="wPublishFileBtn" style="background:linear-gradient(135deg,#10b981,#059669);color:#04130d;border:0;font-weight:800;padding:10px 12px;justify-content:center;font-size:12.5px;">🚀 Put a .html File Online</button>
+        <button class="btn primary" id="wOpenFileBtn" style="padding:10px 12px;justify-content:center;font-size:12.5px;">📄 Open a .html File</button>
+        <button class="btn" id="wOpenHubBtn" style="background:#1e293b;color:#fff;border-color:#4f46e5;padding:10px 12px;justify-content:center;font-size:12.5px;font-weight:700;">🧰 Open Multi-App Hub</button>
+      </div>
+    </div>
 
     <!-- Direct Quick Clone -->
     <div class="clone-box">
-      <label class="clone-label">Want to copy and study a website? Paste its web address here:</label>
+      <label class="clone-label">Want to copy and study a live website? Paste its web address here:</label>
       <div class="clone-bar">
         <input id="wUrl" type="text" placeholder="e.g. apple.com or https://example.com" spellcheck="false">
         <button class="btn primary" id="wGoClone">🌐 Copy Website</button>
@@ -26,32 +37,35 @@
     </div>
 
     <!-- Community Templates & Instant Roll Bar -->
-    <div class="clone-box" style="background:linear-gradient(135deg, rgba(99,102,241,0.14), rgba(16,185,129,0.12));border-color:rgba(99,102,241,0.35);">
+    <div class="clone-box" style="background:linear-gradient(135deg, rgba(99,102,241,0.12), rgba(16,185,129,0.08));border-color:rgba(99,102,241,0.3);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div>
-          <div style="font-weight:700;font-size:13px;color:var(--text);">🎲 Fresh Website Generator &amp; Community Template Hub</div>
-          <div class="muted small">Explore 66+ free HTML5 templates, live Neocities indie sites, 10,000+ GitHub templates, or roll a unique new layout!</div>
+          <div style="font-weight:700;font-size:13px;color:var(--text);">🌍 Free Templates &amp; WebAssembly Apps</div>
+          <div class="muted small">Explore 66+ HTML5 templates, indie sites, 150+ WASM apps, or roll a surprise layout.</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn juice" id="wRollFresh">🎲 Roll Surprise Site</button>
-          <button class="btn primary" id="wOpenCommunity">🌍 Community Templates (1,000+)</button>
-          <button class="btn primary" id="wOpenWasmApps" style="background:#059669;border-color:#10b981;">⚡ Free WASM &amp; HTML5 Apps</button>
+          <button class="btn primary" id="wOpenCommunity">🌍 Templates (1,000+)</button>
+          <button class="btn primary" id="wOpenWasmApps" style="background:#059669;border-color:#10b981;">⚡ Free WASM Apps</button>
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--muted);cursor:pointer;">
         <input type="checkbox" id="wAutoRollStartup">
-        <span>🚀 Open MyHTML straight into a brand-new website template every time the app starts</span>
+        <span>🚀 Open straight into a random surprise template when MyHTML starts</span>
       </label>
     </div>
 
     <!-- Quick Starters -->
-    <div class="sec-title">Start with a Clean Template</div>
+    <div class="sec-title">Start with a Clean Page</div>
     <div id="tplGrid" class="tpl-grid"></div>
 
     <!-- Recent Sites -->
     <div class="sec-title flex-title">
       <span>Your Saved Websites</span>
-      <button class="btn ghost small" id="wOpen">📂 Open Folder</button>
+      <div style="display:flex;gap:6px;">
+        <button class="btn ghost small" id="wOpenHtml">📄 Open .html File</button>
+        <button class="btn ghost small" id="wOpen">📂 Open Folder</button>
+      </div>
     </div>
     <div id="recentGrid" class="recent-grid">
       <div class="muted small" style="padding:10px;">Scanning saved websites…</div>
@@ -64,49 +78,49 @@
   <header class="topbar">
     <div class="logo"><img src="icon.png" alt=""> MyHTML</div>
     <div class="group">
-      <button class="btn ghost" id="bHome" title="Start page">🏠</button>
-      <button class="btn ghost" id="bOpen" title="Open website folder">Open</button>
-      <button class="btn ghost" id="bClone" title="Copy another website from the web">Copy Site</button>
-      <button class="btn juice" id="bRollSite" title="Roll a brand-new surprise website template right now!">🎲 Roll New Site</button>
-      <button class="btn primary" id="bCommunity" title="Browse 1,000+ free community website templates (HTML5 UP, StartBootstrap, Neocities, GitHub)">🌍 Templates</button>
-      <button class="btn primary" id="bWasmApps" style="background:#059669;border-color:#10b981;" title="Browse 150+ free WebAssembly (.wasm) & HTML5 apps to bung into your Multi-App Hub!">⚡ WASM Apps</button>
-      <button class="btn" id="bSave" title="Save changes (Ctrl+S)">💾 Save</button>
+      <button class="btn ghost" id="bHome" title="Back to Start Screen">🏠 Home</button>
+      <button class="btn" id="bOpenHtmlFile" title="Open any .html file from a folder on your PC">📄 Open .html</button>
+      <button class="btn ghost" id="bOpen" title="Open a website folder">📂 Folder</button>
+      <button class="btn" id="bOpenHub" style="border-color:#4f46e5;color:#c7d2fe;" title="Open your Multi-App Hub full screen by itself">🧰 App Hub</button>
+      <button class="btn" id="bCommunity" title="Browse free website templates, WASM apps, or roll a new site">🌍 Templates &amp; Apps</button>
+    </div>
+    <div class="group" style="margin-left:4px;">
+      <button class="btn pill" id="bToggleLeft" title="Open or close the Left Panel (Add sections, pages, fonts & mini-apps)">➕ Add &amp; Pages</button>
+      <button class="btn pill" id="bToggleRight" title="Open or close the Right Panel (Visual style, colors & HTML code)">🎨 Style &amp; Code</button>
+      <button class="btn pill" id="bToggleRemix" title="Show or hide the quick Font, Color & Vibe swapper bar">✨ Swap Look</button>
     </div>
     <div class="group">
+      <button class="btn ghost" id="bSave" title="Save changes (Ctrl+S)">💾 Save</button>
       <button class="icon" id="bUndo" title="Undo (Ctrl+Z)">↶</button>
       <button class="icon" id="bRedo" title="Redo (Ctrl+Y)">↷</button>
-    </div>
-    <div class="group seg" id="devices">
-      <button data-d="desktop" class="on" title="Desktop view">🖥</button>
-      <button data-d="tablet" title="Tablet view">📱︎</button>
-      <button data-d="mobile" title="Phone view">📱</button>
-    </div>
-    <div class="group">
-      <button class="btn pill" id="bBones" title="Highlight layout boxes and containers (Ctrl+B)">🩻 Show Boxes</button>
-      <button class="btn pill" id="bFontsPill" title="View all fonts captured from websites">Aa Fonts <span id="fontCountBadge" class="badge">0</span></button>
     </div>
     <div class="spacer"></div>
     <span id="projName" class="projname"></span>
     <div class="group">
-      <button class="btn juice pill" id="bFullPage" title="View website edge-to-edge in Full Page Mode with all buttons & scripts live (F5)">🖥 Full Page</button>
-      <button class="btn primary pill" id="bPreview" title="Test interactive games, calculators and buttons live">▶ Test App</button>
-      <button class="btn" id="bPublish" title="Put this website online for free with Netlify">🚀 Put Online</button>
-      <button class="btn ghost" id="bBrowser" title="Open in your default web browser">🌐 Browser</button>
-      <button class="icon" id="bFolder" title="Show files in Windows Explorer">📁</button>
-      <button class="btn ghost small" id="bCode" title="View or edit raw HTML">&lt;/&gt; Code</button>
+      <button class="btn pill" id="bPreview" title="Switch between Visual Editing and Live Interactive View">▶ Live View</button>
+      <button class="btn" id="bPublish" style="background:linear-gradient(135deg,#10b981,#059669);color:#04130d;border:0;font-weight:800;padding:5px 13px;" title="Put this page, any Hub app, or any .html file from your PC onto the internet!">🚀 Put Online</button>
+      <button class="icon" id="bBrowser" title="Open current page in your default web browser">🌐</button>
+      <button class="icon" id="bFolder" title="Show project files in Windows Explorer">📁</button>
       <button class="icon themeBtn" title="Dark / light mode">🌓</button>
       <button class="icon fsBtn" title="Full screen (F11)">⛶</button>
     </div>
   </header>
 
-  <aside class="left">
+  <aside class="left" id="leftDrawer" hidden>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg);border-bottom:1px solid var(--line);">
+      <strong style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">➕ Add, Pages &amp; Tools</strong>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <button class="btn small ghost" id="bClone" title="Copy a website from a URL">🌐 Copy URL</button>
+        <button class="icon" id="closeLeftDrawerBtn" title="Close Left Panel" style="width:22px;height:22px;font-size:11px;">✕</button>
+      </div>
+    </div>
     <nav class="tabs" id="leftTabs">
       <button data-t="add" class="on" title="Add sections, elements and mini-apps">Add</button>
       <button data-t="pages" title="All pages in this website">Pages</button>
-      <button data-t="fonts" title="Fonts stolen or used in this website">Fonts</button>
-      <button data-t="assets" title="Imported web apps, tools and pictures in your website">Apps &amp; Pics</button>
+      <button data-t="fonts" title="Fonts in this website">Fonts <span id="fontCountBadge" class="badge" style="display:none;">0</span></button>
+      <button data-t="assets" title="Imported web apps, tools and pictures">Apps</button>
       <button data-t="layers" title="List of elements on this page">Outline</button>
-      <button data-t="bones" title="Inspect layout boxes and grid structures">Boxes</button>
+      <button data-t="bones" title="Inspect layout boxes">Boxes</button>
     </nav>
     <div class="panel" id="p-add"></div>
     <div class="panel" id="p-pages" hidden></div>
@@ -117,10 +131,10 @@
   </aside>
 
   <main class="stage" id="stage">
-    <div class="remix-bar" id="remixBar">
+    <div class="remix-bar" id="remixBar" hidden>
       <div class="remix-info">
-        <span class="badge" id="remixBadge">STUDIO</span>
-        <strong id="remixTitle">Website</strong>
+        <span class="badge" id="remixBadge">LOOK &amp; VIBE</span>
+        <strong id="remixTitle">Quick Restyle</strong>
         <span class="muted" id="remixMeta"></span>
       </div>
       <div class="remix-actions">
@@ -129,11 +143,21 @@
         <button class="btn small" id="remixStealVibeBtn" title="Steal this website's exact colors & fonts into your Saved Vibes!">🪄 Steal Vibe</button>
         <button class="btn small" id="remixApplyVibeBtn" title="Apply a stolen website Vibe onto the current page">✨ Apply Stolen Vibe</button>
         <button class="btn small ghost" id="remixResetBtn" title="Restore this website's original fonts and colors">↺ Original Look</button>
-        <button class="btn small" id="remixArchBtn" title="Cycle to the next compact website layout">📐 Next Layout</button>
-        <button class="btn small juice" id="remixRollBtn" title="Generate a brand-new surprise website">🎲 Roll Site</button>
-        <button class="btn small primary" id="remixFullPageBtn" title="Open edge-to-edge Full Page View (F5 / Esc)">🖥 Full Page</button>
+        <button class="btn small" id="bBones" title="Highlight layout boxes and containers (Ctrl+B)">🩻 Show Boxes</button>
+        <button class="btn small" id="bWasmApps" title="Browse 150+ free WebAssembly apps">⚡ WASM Apps</button>
+        <button class="btn small juice" id="bRollSite" title="Generate a brand-new surprise website">🎲 Roll Site</button>
+        <button class="btn small primary" id="bFullPage" title="Open edge-to-edge Full Page View (F5 / Esc)">🖥 Full Screen</button>
         <button class="icon" id="remixCloseBtn" title="Hide this bar" style="width:20px;height:20px;font-size:11px;">✕</button>
       </div>
+    </div>
+    <!-- Hidden legacy compatibility hooks so all shortcuts work seamlessly -->
+    <div hidden>
+      <button id="bFontsPill"></button>
+      <button id="remixArchBtn"></button>
+      <button id="remixRollBtn"></button>
+      <button id="remixFullPageBtn"></button>
+      <button id="bCode"></button>
+      <div id="devices"><button data-d="desktop" class="on"></button><button data-d="tablet"></button><button data-d="mobile"></button></div>
     </div>
     <div class="canvas" id="canvas"><iframe id="frame" sandbox="allow-same-origin"></iframe></div>
     <div class="codeview" id="codeView" hidden>
@@ -146,14 +170,21 @@
       </div>
       <textarea id="codeText" spellcheck="false" class="mono"></textarea>
     </div>
-    <div class="stage-footer">
+    <div class="stage-footer" id="stageFooter" hidden>
       <div class="breadcrumbs" id="crumbs"><span class="crumb">body</span></div>
       <div class="spacer"></div>
-      <div class="status-hint" id="statusHint">Double-click text to type · Click "▶ Test App" to try interactive mini-apps</div>
+      <div class="status-hint" id="statusHint">Double-click any text on the page to edit it · Use "➕ Add &amp; Pages" or "🎨 Style &amp; Code" in the top bar anytime</div>
     </div>
   </main>
 
-  <aside class="right">
+  <aside class="right" id="rightDrawer" hidden>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg);border-bottom:1px solid var(--line);">
+      <strong style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">🎨 Style &amp; HTML Code</strong>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <button class="btn small ghost" id="openFullCodeBtn" title="Edit full page HTML code">&lt;/&gt; Full Page HTML</button>
+        <button class="icon" id="closeRightDrawerBtn" title="Close Right Panel" style="width:22px;height:22px;font-size:11px;">✕</button>
+      </div>
+    </div>
     <nav class="tabs" id="rightTabs">
       <button data-t="design" class="on">Design</button>
       <button data-t="code">Code</button>

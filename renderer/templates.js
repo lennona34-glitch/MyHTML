@@ -8,79 +8,64 @@
   const WRAP = 'max-width:1100px;margin:0 auto;';
   const BTN = 'display:inline-block;padding:12px 26px;background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;';
 
-  const APP_HUB_HTML = `<div class="myhtml-app-hub" data-app-hub="1" style="background:#0f172a;color:#f8fafc;border:1px solid #334155;border-radius:16px;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,0.35);margin:18px auto;max-width:1360px;height:85vh;min-height:620px;display:flex;flex-direction:column;font-family:'Segoe UI',system-ui,sans-serif;">
-  <div class="myhtml-hub-topbar" style="background:#090d16;padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #1e293b;">
-    <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:18px;">🧰</span>
-      <strong class="myhtml-hub-title" style="font-size:15px;color:#ffffff;letter-spacing:0.2px;">All-in-One App Hub</strong>
-      <span class="myhtml-hub-count" style="background:rgba(99,102,241,0.2);color:#818cf8;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;">4 Apps</span>
-    </div>
-    <div style="flex:1;max-width:280px;min-width:160px;">
-      <input type="text" class="myhtml-hub-search" placeholder="🔍 Filter apps in hub…" style="width:100%;background:#1e293b;border:1px solid #334155;color:#f8fafc;padding:6px 11px;border-radius:8px;font-size:12px;outline:none;">
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-      <button type="button" class="myhtml-hub-view-btn" data-hub-view="dock" style="background:#334155;color:#fff;border:0;border-radius:6px;padding:6px 10px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Sidebar Dock + Single Screen">▤ Dock View</button>
-      <button type="button" class="myhtml-hub-view-btn" data-hub-view="grid" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:6px 10px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Show all apps as a launcher grid">▦ All Apps Grid</button>
-      <button type="button" class="myhtml-hub-btn-add" style="background:#4f46e5;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add a Web App folder (like XISO dist)">📂 + App Folder</button>
-      <button type="button" class="myhtml-hub-btn-bulk" style="background:#7c3aed;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Bung a whole folder of 10 or 30 apps into this hub at once">📚 + Bulk Folder</button>
-      <button type="button" class="myhtml-hub-btn-file" style="background:#2563eb;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add standalone .html app files">📄 + .html File</button>
-      <button type="button" class="myhtml-hub-btn-wasm" style="background:#059669;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Browse 150+ free WebAssembly (.wasm) & HTML5 apps to bung into this Hub!">⚡ + Free WASM Apps</button>
-      <button type="button" class="myhtml-hub-btn-create" style="background:#ec4899;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Create a brand-new standalone .html app or paste HTML code right into the Hub!">✨ + New .html App</button>
-      <button type="button" class="myhtml-app-btn-test" style="background:#10b981;color:#ffffff;border:0;border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:700;cursor:pointer;" title="Run and switch between apps live">▶ Test Live</button>
-    </div>
-  </div>
-  <div class="myhtml-hub-body" style="flex:1;display:flex;min-height:0;position:relative;overflow:hidden;">
-    <aside class="myhtml-hub-sidebar" style="width:230px;background:#0b1120;border-right:1px solid #1e293b;display:flex;flex-direction:column;min-height:0;flex-shrink:0;">
-      <div style="padding:10px 12px 6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;display:flex;justify-content:space-between;align-items:center;">
-        <span>Installed Apps</span>
-        <span>Click to switch</span>
-      </div>
-      <div class="myhtml-hub-nav" style="flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:4px;">
-        <button type="button" class="myhtml-hub-item active" data-app-src="assets/apps/xiso-tool/index.html" data-app-title="XISO Tool" data-app-icon="💿" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid #4f46e5;background:rgba(79,70,229,0.22);color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer;">
-          <span style="font-size:15px;">💿</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">XISO Tool</span>
-        </button>
-        <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/wasm-studio/index.html" data-app-title="WASM Fractal &amp; Binary Studio" data-app-icon="⚡" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
-          <span style="font-size:15px;">⚡</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">WASM Fractal &amp; Binary Studio</span>
-        </button>
-        <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/hex-inspector/index.html" data-app-title="Hex &amp; Binary Inspector" data-app-icon="🔬" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
-          <span style="font-size:15px;">🔬</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Hex &amp; Binary Inspector</span>
-        </button>
-        <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/storage-calc/index.html" data-app-title="Drive &amp; ISO Size Calculator" data-app-icon="💾" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
-          <span style="font-size:15px;">💾</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Drive &amp; ISO Size Calculator</span>
-        </button>
-        <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/image-resizer/index.html" data-app-title="Cover Art &amp; Image Resizer" data-app-icon="🖼️" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
-          <span style="font-size:15px;">🖼️</span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Cover Art &amp; Image Resizer</span>
-        </button>
-      </div>
-    </aside>
-    <div class="myhtml-hub-stage" style="flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative;background:#0f172a;">
-      <div class="myhtml-hub-stagebar" style="background:#1e293b;padding:6px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155;font-size:12px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="color:#10b981;font-size:10px;">● ACTIVE SCREEN</span>
-          <strong class="myhtml-hub-active-title" style="color:#f8fafc;">💿 XISO Tool</strong>
-          <span class="myhtml-hub-wasm-badge" style="background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.4);padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;font-family:monospace;">⚡ WASM NATIVE</span>
+  const APP_HUB_HTML = `<div class="myhtml-app-hub" data-app-hub="1" data-hub-clean="2" style="background:#090d16;color:#f8fafc;margin:0;width:100%;height:100vh;min-height:600px;display:flex;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;">
+  <aside class="myhtml-hub-sidebar" style="width:238px;background:#0b1120;border-right:1px solid #1e293b;display:flex;flex-direction:column;min-height:0;flex-shrink:0;">
+    <div style="padding:12px 12px 10px;border-bottom:1px solid #1e293b;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="font-size:17px;">🧰</span>
+          <strong class="myhtml-hub-title" style="font-size:14px;color:#ffffff;">Multi-App Hub</strong>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <button type="button" class="myhtml-hub-edit-app" style="background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;" title="View or edit the HTML code of this active app">✎ Edit App .html</button>
-          <button type="button" class="myhtml-hub-reload" style="background:#334155;color:#e2e8f0;border:0;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;">↻ Reload App</button>
-          <button type="button" class="myhtml-hub-remove-app" style="background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.35);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;" title="Remove this app from the Hub">✕ Remove</button>
-          <a href="assets/apps/xiso-tool/index.html" target="_blank" class="myhtml-hub-pop myhtml-app-btn-pop" style="color:#94a3b8;text-decoration:none;font-size:11.5px;padding:2px 6px;">↗ Open Separate</a>
-        </div>
+        <span class="myhtml-hub-count" style="background:rgba(99,102,241,0.2);color:#818cf8;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:10px;">5 Apps</span>
       </div>
-      <iframe class="myhtml-hub-frame" src="assets/apps/xiso-tool/index.html" style="flex:1;width:100%;height:100%;border:0;background:#ffffff;display:block;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
-      <div class="myhtml-hub-grid" style="display:none;position:absolute;inset:0;background:#0f172a;padding:24px;overflow-y:auto;z-index:5;">
-        <div style="max-width:1000px;margin:0 auto;">
-          <h3 style="margin:0 0 6px;font-size:18px;color:#fff;">▦ All Apps &amp; Utilities Launcher</h3>
-          <p style="margin:0 0 18px;font-size:13px;color:#94a3b8;">Click any tool below to open it right inside this single screen space.</p>
-          <div class="myhtml-hub-grid-items" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;"></div>
-        </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+        <button type="button" class="myhtml-hub-btn-file" style="background:#4f46e5;color:#ffffff;border:0;border-radius:7px;padding:7px 8px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add a .html file from your PC">+ .html File</button>
+        <button type="button" class="myhtml-hub-btn-add" style="background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:7px;padding:7px 8px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Add an app folder">+ Folder</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
+        <button type="button" class="myhtml-hub-btn-bulk" style="background:#151d2e;color:#94a3b8;border:1px solid #1e293b;border-radius:6px;padding:4px 5px;font-size:10.5px;cursor:pointer;" title="Bung a whole folder of apps in at once">📚 Bulk</button>
+        <button type="button" class="myhtml-hub-btn-wasm" style="background:#151d2e;color:#34d399;border:1px solid rgba(16,185,129,0.3);border-radius:6px;padding:4px 5px;font-size:10.5px;font-weight:600;cursor:pointer;" title="Browse 150+ free WASM apps">⚡ WASM</button>
+        <button type="button" class="myhtml-hub-btn-create" style="background:#151d2e;color:#f472b6;border:1px solid rgba(236,72,153,0.3);border-radius:6px;padding:4px 5px;font-size:10.5px;font-weight:600;cursor:pointer;" title="Create a new .html app">✨ New</button>
+      </div>
+      <input type="text" class="myhtml-hub-search" placeholder="🔍 Filter pages…" style="width:100%;background:#131b2e;border:1px solid #1e293b;color:#f8fafc;padding:5px 9px;border-radius:6px;font-size:11.5px;outline:none;">
+    </div>
+    <div class="myhtml-hub-nav" style="flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:4px;">
+      <button type="button" class="myhtml-hub-item active" data-app-src="assets/apps/xiso-tool/index.html" data-app-title="XISO Tool" data-app-icon="💿" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid #4f46e5;background:rgba(79,70,229,0.22);color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer;">
+        <span style="font-size:15px;">💿</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">XISO Tool</span>
+      </button>
+      <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/wasm-studio/index.html" data-app-title="WASM Fractal &amp; Binary Studio" data-app-icon="⚡" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
+        <span style="font-size:15px;">⚡</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">WASM Fractal &amp; Binary Studio</span>
+      </button>
+      <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/hex-inspector/index.html" data-app-title="Hex &amp; Binary Inspector" data-app-icon="🔬" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
+        <span style="font-size:15px;">🔬</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Hex &amp; Binary Inspector</span>
+      </button>
+      <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/storage-calc/index.html" data-app-title="Drive &amp; ISO Size Calculator" data-app-icon="💾" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
+        <span style="font-size:15px;">💾</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Drive &amp; ISO Size Calculator</span>
+      </button>
+      <button type="button" class="myhtml-hub-item" data-app-src="assets/apps/image-resizer/index.html" data-app-title="Cover Art &amp; Image Resizer" data-app-icon="🖼️" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:transparent;color:#cbd5e1;font-size:12.5px;font-weight:500;cursor:pointer;">
+        <span style="font-size:15px;">🖼️</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Cover Art &amp; Image Resizer</span>
+      </button>
+    </div>
+    <div style="padding:10px 12px;border-top:1px solid #1e293b;background:#080c17;display:flex;flex-direction:column;gap:6px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+        <strong class="myhtml-hub-active-title" style="font-size:11.5px;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">💿 XISO Tool</strong>
+        <a href="assets/apps/xiso-tool/index.html" target="_blank" class="myhtml-hub-pop myhtml-app-btn-pop" style="color:#64748b;text-decoration:none;font-size:10.5px;" title="Open in separate window">↗</a>
+      </div>
+      <button type="button" class="myhtml-hub-publish-app" style="width:100%;background:linear-gradient(135deg,#10b981,#059669);color:#04130d;border:0;border-radius:7px;padding:7px 10px;font-size:11.5px;font-weight:800;cursor:pointer;" title="Put this highlighted page online on the internet!">🚀 Put Highlighted Page Online</button>
+      <div style="display:flex;gap:5px;">
+        <button type="button" class="myhtml-hub-edit-app" style="flex:1;background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:10.5px;cursor:pointer;" title="Edit the HTML code of this highlighted page">✎ Edit .html</button>
+        <button type="button" class="myhtml-hub-reload" style="background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:4px 8px;font-size:10.5px;cursor:pointer;" title="Reload highlighted page">↻</button>
+        <button type="button" class="myhtml-hub-remove-app" style="background:rgba(239,68,68,0.14);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 8px;font-size:10.5px;cursor:pointer;" title="Remove from Hub">✕</button>
       </div>
     </div>
+  </aside>
+  <div class="myhtml-hub-stage" style="flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative;background:#090d16;">
+    <iframe class="myhtml-hub-frame" src="assets/apps/xiso-tool/index.html" style="flex:1;width:100%;height:100%;border:0;background:#ffffff;display:block;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
   </div>
   <script>
     (function(){
@@ -91,10 +76,14 @@
         var frame = hub.querySelector('.myhtml-hub-frame');
         var activeTitle = hub.querySelector('.myhtml-hub-active-title');
         var pop = hub.querySelector('.myhtml-hub-pop');
-        var gridWrap = hub.querySelector('.myhtml-hub-grid');
-        var gridItems = hub.querySelector('.myhtml-hub-grid-items');
         var search = hub.querySelector('.myhtml-hub-search');
         var countEl = hub.querySelector('.myhtml-hub-count');
+
+        function updateCount(){
+          if(!nav || !countEl) return;
+          var items = nav.querySelectorAll('.myhtml-hub-item');
+          countEl.textContent = items.length + (items.length === 1 ? ' App' : ' Apps');
+        }
 
         function selectApp(btn){
           if(!btn) return;
@@ -112,44 +101,11 @@
           if(frame && src) frame.src = src;
           if(activeTitle) activeTitle.textContent = icon + ' ' + title;
           if(pop && src) pop.href = src;
-          setView('dock');
-        }
-
-        function buildGrid(){
-          if(!gridItems || !nav) return;
-          var items = Array.from(nav.querySelectorAll('.myhtml-hub-item'));
-          if(countEl) countEl.textContent = items.length + (items.length === 1 ? ' App' : ' Apps');
-          gridItems.innerHTML = '';
-          items.forEach(function(btn){
-            if(btn.style.display === 'none') return;
-            var icon = btn.getAttribute('data-app-icon') || '📦';
-            var title = btn.getAttribute('data-app-title') || btn.textContent.trim();
-            var card = document.createElement('div');
-            card.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:18px;cursor:pointer;transition:.15s;display:flex;flex-direction:column;gap:8px;';
-            card.innerHTML = '<div style="font-size:28px;">' + icon + '</div><div style="font-weight:700;font-size:14px;color:#fff;">' + title + '</div><div style="font-size:11px;color:#34d399;font-weight:600;">▶ Launch in Screen</div>';
-            card.onclick = function(){ selectApp(btn); };
-            gridItems.appendChild(card);
-          });
-        }
-
-        function setView(mode){
-          if(!gridWrap) return;
-          gridWrap.style.display = mode === 'grid' ? 'block' : 'none';
-          hub.querySelectorAll('.myhtml-hub-view-btn').forEach(function(b){
-            var on = b.getAttribute('data-hub-view') === mode;
-            b.style.background = on ? '#334155' : '#1e293b';
-            b.style.color = on ? '#fff' : '#94a3b8';
-          });
-          if(mode === 'grid') buildGrid();
         }
 
         if(nav) nav.addEventListener('click', function(e){
           var btn = e.target.closest('.myhtml-hub-item');
           if(btn) selectApp(btn);
-        });
-
-        hub.querySelectorAll('.myhtml-hub-view-btn').forEach(function(b){
-          b.addEventListener('click', function(){ setView(b.getAttribute('data-hub-view')); });
         });
 
         var reloadBtn = hub.querySelector('.myhtml-hub-reload');
@@ -161,10 +117,9 @@
             var t = (btn.getAttribute('data-app-title') || btn.textContent).toLowerCase();
             btn.style.display = (!q || t.indexOf(q) !== -1) ? 'flex' : 'none';
           });
-          if(gridWrap && gridWrap.style.display === 'block') buildGrid();
         });
 
-        buildGrid();
+        updateCount();
       });
     })();
   <\/script>
