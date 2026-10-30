@@ -2521,8 +2521,11 @@
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <button type="button" class="btn primary small" id="pubBrowseFileBtn" style="padding:5px 10px;">📂 Choose .html File from PC…</button>
               <span class="small" style="font-family:monospace;color:${pub.pickedFile ? '#34d399' : 'var(--muted)'};">
-                ${pub.pickedFile ? `✓ ${esc(pub.pickedFile.fileName)}` : 'No file selected yet'}
+                ${pub.pickedFile ? `✓ ${esc(pub.pickedFile.fileName)} (HTML Web Page)` : 'No file selected yet'}
               </span>
+            </div>
+            <div style="font-size:10.5px;color:#94a3b8;margin-top:5px;display:flex;align-items:center;gap:5px;">
+              <span>🛡️</span> <span><b>Web-Safe Filter:</b> Excludes all non-web files (.cpp, .c, .exe, scripts) automatically.</span>
             </div>
           </div>
         </div>
@@ -3928,7 +3931,15 @@
   function handleExternalHtmlFileDrop(e) {
     const files = [...(e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files : [])];
     const htmlFiles = files.filter((f) => /\.html?$/i.test(f.name || ''));
-    if (!htmlFiles.length) return;
+    if (!htmlFiles.length) {
+      if (files.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        const nonHtmlName = files[0].name || 'file';
+        toast(`⚠ "${nonHtmlName}" is not an HTML file. MyHTML only opens and publishes .html web pages.`);
+      }
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
 

@@ -143,11 +143,21 @@ ipcMain.handle('project:openHtmlFile', async (_, directFilePath) => {
     const r = await dialog.showOpenDialog(win, {
       title: 'Open a .html Web Page File',
       properties: ['openFile'],
-      filters: [{ name: 'HTML Web Pages', extensions: ['html', 'htm'] }],
+      filters: [{ name: 'HTML Web Pages (*.html, *.htm)', extensions: ['html', 'htm'] }],
       buttonLabel: 'Open .html Page'
     });
     if (r.canceled || !r.filePaths.length) return null;
     srcFile = r.filePaths[0];
+  }
+  const ext = path.extname(srcFile).toLowerCase();
+  if (ext !== '.html' && ext !== '.htm') {
+    await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'Only .html files can be opened as web pages',
+      message: `"${path.basename(srcFile)}" is not a .html file.`,
+      detail: 'MyHTML is a website editor. Please select an HTML web page file (.html or .htm).'
+    });
+    return null;
   }
   const rawBase = path.basename(srcFile, path.extname(srcFile));
   const cleanFolder = rawBase.replace(/[<>:"/\\|?*]+/g, '-').trim() || 'opened-page';
@@ -160,13 +170,17 @@ ipcMain.handle('project:openHtmlFile', async (_, directFilePath) => {
   fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
   fs.copyFileSync(srcFile, path.join(dir, 'index.html'));
-  // Copy sibling local assets referenced by this HTML file so local images/CSS/JS work seamlessly
+
+  // Only copy legitimate web assets (.css, .js, .wasm, images) referenced by the HTML — NEVER .cpp, .c, .h, .exe, etc.
+  const WEB_EXTS = new Set(['.css', '.js', '.mjs', '.json', '.wasm', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.mp3', '.wav', '.ogg', '.mp4', '.webm']);
   try {
     const htmlContent = fs.readFileSync(srcFile, 'utf8');
     const srcParent = path.dirname(srcFile);
     for (const ent of fs.readdirSync(srcParent, { withFileTypes: true })) {
-      if (ent.name === path.basename(srcFile) || ent.name.startsWith('.')) continue;
-      if (htmlContent.includes(ent.name) && !ent.isDirectory()) {
+      if (ent.name === path.basename(srcFile) || ent.name.startsWith('.') || ent.isDirectory()) continue;
+      const fExt = path.extname(ent.name).toLowerCase();
+      if (!WEB_EXTS.has(fExt)) continue; // Strictly exclude non-web files like .cpp, .cs, .py, etc.
+      if (htmlContent.includes(ent.name)) {
         const s = path.join(srcParent, ent.name);
         if (fs.statSync(s).size < 15 * 1024 * 1024) {
           fs.copyFileSync(s, path.join(dir, ent.name));
@@ -492,12 +506,24 @@ ipcMain.handle('publish:pickHtmlFile', async () => {
   const r = await dialog.showOpenDialog(win, {
     title: 'Choose a .html File from Your Computer to Put Online',
     properties: ['openFile'],
-    filters: [{ name: 'HTML Web Pages', extensions: ['html', 'htm'] }],
+    filters: [
+      { name: 'HTML Web Pages (*.html, *.htm)', extensions: ['html', 'htm'] }
+    ],
     buttonLabel: 'Select .html File'
   });
   if (r.canceled || !r.filePaths.length) return null;
   const filePath = r.filePaths[0];
   const fileName = path.basename(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext !== '.html' && ext !== '.htm') {
+    await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'Only .html files can be put online',
+      message: `"${fileName}" is not an HTML file (${ext || 'no extension'}).`,
+      detail: 'MyHTML only publishes HTML web pages (.html or .htm). Non-web files (like C++ source code or executables) cannot be published as websites.'
+    });
+    return null;
+  }
   const defaultName = path.basename(filePath, path.extname(filePath))
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
