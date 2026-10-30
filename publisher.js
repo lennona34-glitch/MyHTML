@@ -79,6 +79,26 @@ function copyDirFiltered(src, dest, filterFn) {
   }
 }
 
+function injectSocialMetaTags(html, title, description) {
+  if (!html || !/<head>/i.test(html)) return html;
+  const cleanTitle = title || 'Website';
+  const cleanDesc = description || 'Published with MyHTML';
+  let tags = '';
+  if (!/<meta[^>]+property=["']og:title["']/i.test(html)) {
+    tags += `\n  <meta property="og:title" content="${cleanTitle.replace(/"/g, '&quot;')}">`;
+  }
+  if (!/<meta[^>]+property=["']og:description["']/i.test(html)) {
+    tags += `\n  <meta property="og:description" content="${cleanDesc.replace(/"/g, '&quot;')}">`;
+  }
+  if (!/<meta[^>]+property=["']og:type["']/i.test(html)) {
+    tags += `\n  <meta property="og:type" content="website">`;
+  }
+  if (tags) {
+    return html.replace(/<head>/i, `<head>${tags}`);
+  }
+  return html;
+}
+
 /**
  * Prepares a clean directory containing an index.html ready to be uploaded,
  * ensuring ONLY valid HTML and web assets (.css, .js, .wasm, images, fonts) are included.
@@ -88,6 +108,19 @@ function prepareTargetStage({ mode, projectDir, filePath, appRelPath, pageName }
   let metaDir = projectDir || null;
   let defaultSlug = 'my-web-page';
   const stagedFiles = [];
+
+  const finalizeStage = () => {
+    const stageIndex = path.join(stageDir, 'index.html');
+    if (fs.existsSync(stageIndex)) {
+      try {
+        let content = fs.readFileSync(stageIndex, 'utf8');
+        const titleMatch = content.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const pageTitle = titleMatch ? titleMatch[1].trim() : (defaultSlug || 'My Website');
+        content = injectSocialMetaTags(content, pageTitle);
+        fs.writeFileSync(stageIndex, content, 'utf8');
+      } catch {}
+    }
+  };
 
   if (mode === 'file') {
     if (!filePath || !fs.existsSync(filePath)) {
@@ -132,6 +165,7 @@ function prepareTargetStage({ mode, projectDir, filePath, appRelPath, pageName }
         }
       }
     }
+    finalizeStage();
     log(`Staged ${stagedFiles.length} web file${stagedFiles.length === 1 ? '' : 's'}: ${stagedFiles.slice(0, 5).join(', ')}${stagedFiles.length > 5 ? '…' : ''} (all non-web/C++ files excluded)`);
     metaDir = null;
     return { stageDir, metaDir, defaultSlug, stagedFiles, cleanup: () => { try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {} } };
@@ -150,6 +184,7 @@ function prepareTargetStage({ mode, projectDir, filePath, appRelPath, pageName }
       const htmls = fs.readdirSync(stageDir).filter((f) => /\.html?$/i.test(f));
       if (htmls.length) fs.copyFileSync(path.join(stageDir, htmls[0]), path.join(stageDir, 'index.html'));
     }
+    finalizeStage();
     metaDir = appFolder;
     return { stageDir, metaDir, defaultSlug, stagedFiles: fs.readdirSync(stageDir), cleanup: () => { try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {} } };
   }
@@ -173,6 +208,7 @@ function prepareTargetStage({ mode, projectDir, filePath, appRelPath, pageName }
         else if (isWebAsset(ent.name)) fs.copyFileSync(s, d);
       }
     }
+    finalizeStage();
     return { stageDir, metaDir: projectDir, defaultSlug, stagedFiles: fs.readdirSync(stageDir), cleanup: () => { try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {} } };
   }
 
@@ -182,6 +218,7 @@ function prepareTargetStage({ mode, projectDir, filePath, appRelPath, pageName }
   }
   defaultSlug = path.basename(projectDir).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'my-website';
   copyDirFiltered(projectDir, stageDir);
+  finalizeStage();
   return { stageDir, metaDir: projectDir, defaultSlug, stagedFiles: fs.readdirSync(stageDir), cleanup: () => { try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {} } };
 }
 

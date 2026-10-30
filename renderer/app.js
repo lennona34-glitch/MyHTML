@@ -2442,33 +2442,43 @@
     go.disabled = false;
 
     if (pub.step === 'done' && result) {
-      const mainUrl = result.instantUrl || result.url;
       body.innerHTML = `
         <div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
           <div style="font-size:15px;font-weight:800;color:#34d399;margin-bottom:6px;">🎉 Your HTML Page is Live on the Internet!</div>
-          ${result.instantUrl ? `
-            <div class="muted small" style="margin-bottom:4px;">⚡ <b>Instant Live Link (Works immediately!):</b></div>
-            <div class="liveurl" style="margin-bottom:8px;">${esc(result.instantUrl)}</div>
-            <div class="tools" style="margin-bottom:10px;">
-              <button class="btn primary" id="pubOpenInstant">⚡ Open Instant Webpage</button>
-              <button class="btn" id="pubCopyInstant">📋 Copy Instant Link</button>
+
+          ${result.url ? `
+            <div style="background:var(--panel);border:1.5px solid #10b981;border-radius:9px;padding:12px;margin:10px 0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+                <span style="font-weight:800;font-size:12.5px;color:#f8fafc;">🌍 Official Web Link (Share on Facebook, Twitter & Mobile):</span>
+                <span style="background:#10b981;color:#04130d;font-size:9.5px;font-weight:800;padding:2px 6px;border-radius:4px;">RECOMMENDED FOR SHARING</span>
+              </div>
+              <div class="liveurl" style="margin-bottom:8px;font-size:13px;word-break:break-all;color:#34d399;background:var(--bg);padding:7px 10px;border-radius:6px;border:1px solid var(--line);">${esc(result.url)}</div>
+              <div class="tools" style="display:flex;gap:7px;">
+                <button class="btn primary" id="pubCopyPerm" style="flex:1;background:#10b981;border-color:#10b981;color:#04130d;font-weight:800;">📋 Copy Link for Facebook / Web</button>
+                <button class="btn" id="pubOpenPerm">🌍 Open Website</button>
+              </div>
+              <div class="muted small" style="margin-top:6px;font-size:10.5px;">✓ Fully compatible with Facebook tracking links (<code>fbclid</code>), social previews, and all mobile browsers.</div>
             </div>
           ` : ''}
-          ${result.url ? `
-            <div class="muted small" style="margin-bottom:4px;">🌍 <b>Permanent Website Address (${result.provider === 'github' ? 'GitHub Pages HTTPS — ready in ~20s' : 'Netlify HTTPS'}):</b></div>
-            <div class="liveurl" style="margin-bottom:8px;">${esc(result.url)}</div>
-            <div class="tools">
-              <button class="btn" id="pubOpenPerm">🌍 Open Permanent URL</button>
-              <button class="btn" id="pubCopyPerm">📋 Copy Permanent Link</button>
+
+          ${result.instantUrl ? `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;">
+              <div class="muted small" style="margin-bottom:4px;font-weight:600;">⚡ <b>Instant Dev Preview (Quick Local Testing):</b></div>
+              <div class="liveurl" style="margin-bottom:6px;font-size:11.5px;color:var(--text);word-break:break-all;">${esc(result.instantUrl)}</div>
+              <div class="tools" style="display:flex;gap:6px;">
+                <button class="btn small" id="pubOpenInstant">⚡ Open Dev Preview</button>
+                <button class="btn small ghost" id="pubCopyInstant">📋 Copy Preview Link</button>
+              </div>
+              <div class="muted small" style="margin-top:5px;font-size:10px;color:#f59e0b;">⚠ Note: For Facebook posts, always use the Official Web Link above. Facebook's click tracking can break Gist preview URLs.</div>
             </div>
           ` : ''}
         </div>
       `;
       go.hidden = true;
       if ($('#pubOpenInstant')) $('#pubOpenInstant').onclick = () => api.openExternal(result.instantUrl);
-      if ($('#pubCopyInstant')) $('#pubCopyInstant').onclick = () => { navigator.clipboard.writeText(result.instantUrl); toast('Instant link copied!'); };
+      if ($('#pubCopyInstant')) $('#pubCopyInstant').onclick = () => { navigator.clipboard.writeText(result.instantUrl); toast('Dev preview link copied!'); };
       if ($('#pubOpenPerm')) $('#pubOpenPerm').onclick = () => api.openExternal(result.url);
-      if ($('#pubCopyPerm')) $('#pubCopyPerm').onclick = () => { navigator.clipboard.writeText(result.url); toast('Permanent link copied!'); };
+      if ($('#pubCopyPerm')) $('#pubCopyPerm').onclick = () => { navigator.clipboard.writeText(result.url); toast('✓ Copied official Facebook & web link!'); };
       return;
     }
 
