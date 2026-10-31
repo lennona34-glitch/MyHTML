@@ -420,15 +420,19 @@
     html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + inject) : inject + html;
     frame.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads');
     frame.onload = () => {
-      doc = frame.contentDocument;
-      if (!live) {
-        attach();
-        if (S.bonesMode) applyBonesToDoc();
-      } else {
-        attachLiveBridge();
+      try {
+        doc = frame.contentDocument;
+        if (!live) {
+          attach();
+          if (S.bonesMode) applyBonesToDoc();
+        } else {
+          attachLiveBridge();
+        }
+        syncAllHubsInDoc();
+        bindNestedAppFrames();
+      } catch (err) {
+        console.error('Frame initialization error:', err);
       }
-      syncAllHubsInDoc();
-      bindNestedAppFrames();
     };
     frame.srcdoc = html;
   }
