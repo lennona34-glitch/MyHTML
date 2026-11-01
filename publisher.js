@@ -47,6 +47,24 @@ function isReferencedInHtml(html, fileName) {
   return re.test(html);
 }
 
+const GLOBAL_META_FILE = path.join(os.homedir(), '.myhtml-pub-meta.json');
+function readFileMeta(key) {
+  if (!key) return {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(GLOBAL_META_FILE, 'utf8'));
+    return raw[key] || {};
+  } catch { return {}; }
+}
+function writeFileMeta(key, data) {
+  if (!key) return;
+  try {
+    let raw = {};
+    try { raw = JSON.parse(fs.readFileSync(GLOBAL_META_FILE, 'utf8')); } catch {}
+    raw[key] = { ...(raw[key] || {}), ...data };
+    fs.writeFileSync(GLOBAL_META_FILE, JSON.stringify(raw, null, 2));
+  } catch {}
+}
+
 function readMeta(dir) {
   if (!dir) return {};
   try { return JSON.parse(fs.readFileSync(path.join(dir, META), 'utf8')); } catch { return {}; }
@@ -401,18 +419,87 @@ async function publishViaNetlify(token, opts = {}, log = () => {}) {
     if (!fs.existsSync(path.join(stageDir, 'index.html'))) {
       throw new Error('Your site needs an index.html page to be published.');
     }
-    const meta = metaDir ? readMeta(metaDir) : {};
+
+    const baseSlug = (opts.name || defaultSlug || 'my-web-page')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'my-web-page';
+
+    // 1. Check if we already have a siteId stored for this project folder or standalone file
+    const fileKey = opts.filePath ? path.resolve(opts.filePath) : null;
+    const meta = metaDir ? readMeta(metaDir) : (fileKey ? readFileMeta(fileKey) : {});
     let siteId = meta.netlifySiteId, site;
+
     if (siteId) {
-      try { site = await netlifyCall(token, 'GET', '/sites/' + siteId); }
-      catch (e) { if (e.status === 404) siteId = null; else throw e; }
+      try {
+        site = await netlifyCall(token, 'GET', '/sites/' + siteId);
+        log(`✓ Found existing Netlify site "${site.name}.netlify.app" — updating…`);
+      } catch (e) {
+        if (e.status === 404) siteId = null;
+        else throw e;
+      }
     }
+
+    // 2. If no cached siteId, check if a site matching this name already exists in the user's Netlify account
+    if (!siteId && baseSlug) {
+      try {
+        log('Checking existing sites in your Netlify account…');
+        const userSites = await netlifyCall(token, 'GET', '/sites?filter=all');
+        if (Array.isArray(userSites)) {
+          const match = userSites.find(
+            (s) => s && s.name && s.name.toLowerCase() === baseSlug
+          );
+          if (match) {
+            site = match;
+            siteId = match.id;
+            log(`✓ Found existing site "${match.name}.netlify.app" in your account — updating live version…`);
+          }
+        }
+      } catch {}
+    }
+
+    // 3. If site still doesn't exist, create it with automatic collision recovery
     if (!siteId) {
       log('Creating your site on Netlify…');
-      const name = (opts.name || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
-      site = await netlifyCall(token, 'POST', '/sites', JSON.stringify(name ? { name } : {}), { 'Content-Type': 'application/json' });
-      siteId = site.id;
+      let targetName = baseSlug.slice(0, 36);
+      let created = false;
+      let attempt = 0;
+
+      while (!created && attempt < 4) {
+        attempt++;
+        try {
+          const bodyPayload = targetName ? JSON.stringify({ name: targetName }) : '{}';
+          site = await netlifyCall(token, 'POST', '/sites', bodyPayload, { 'Content-Type': 'application/json' });
+          siteId = site.id;
+          created = true;
+          log(`✓ Netlify site created: ${site.name}.netlify.app`);
+        } catch (err) {
+          const errMsg = String((err.data && JSON.stringify(err.data)) || err.message || '');
+          const isConflict = err.status === 422 || /must be unique|subdomain.*unique|already taken|is taken/i.test(errMsg);
+          if (isConflict) {
+            if (attempt === 1 && targetName) {
+              const suffix = Math.random().toString(36).slice(2, 6);
+              targetName = `${baseSlug.slice(0, 29)}-${suffix}`;
+              log(`Subdomain "${baseSlug}.netlify.app" is already taken. Retrying with unique name: "${targetName}"…`);
+            } else if (attempt === 2 && targetName) {
+              const timeSuffix = Date.now().toString(36).slice(-4);
+              targetName = `${baseSlug.slice(0, 25)}-${timeSuffix}`;
+              log(`Retrying with: "${targetName}"…`);
+            } else {
+              log('Letting Netlify assign a guaranteed unique subdomain name…');
+              targetName = '';
+            }
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      if (!siteId) {
+        throw new Error('Could not create site on Netlify. Please try again.');
+      }
     }
+
     log(`Packing ${stagedFiles ? stagedFiles.length : 'web'} HTML & asset files (non-web/C++ files excluded)…`);
     const buf = zipDirectory(stageDir);
     log(`Uploading ${(buf.length / 1024 / 1024).toFixed(2)} MB to Netlify…`);
@@ -426,6 +513,7 @@ async function publishViaNetlify(token, opts = {}, log = () => {}) {
     const url = (site && (site.ssl_url || site.url)) || deploy.ssl_url || deploy.url;
     const adminUrl = (site && site.admin_url) || deploy.admin_url;
     if (metaDir) writeMeta(metaDir, { netlifySiteId: siteId, url, adminUrl, provider: 'netlify' });
+    if (fileKey) writeFileMeta(fileKey, { netlifySiteId: siteId, url, adminUrl, provider: 'netlify' });
     return { url, adminUrl, ready: deploy.state === 'ready', provider: 'netlify' };
   } finally {
     cleanup();
