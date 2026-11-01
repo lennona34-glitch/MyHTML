@@ -138,6 +138,29 @@ function prepareTargetStage({ mode, projectDir, filePath, appRelPath, pageName }
         fs.writeFileSync(stageIndex, content, 'utf8');
       } catch {}
     }
+    // Netlify & hosting headers file to guarantee correct MIME types and public web serving
+    try {
+      const headersContent = `/*
+  X-Content-Type-Options: nosniff
+/
+  Content-Type: text/html; charset=utf-8
+/index.html
+  Content-Type: text/html; charset=utf-8
+/*.html
+  Content-Type: text/html; charset=utf-8
+/*.css
+  Content-Type: text/css; charset=utf-8
+/*.js
+  Content-Type: application/javascript; charset=utf-8
+/*.mjs
+  Content-Type: application/javascript; charset=utf-8
+/*.wasm
+  Content-Type: application/wasm
+/*.json
+  Content-Type: application/json; charset=utf-8
+`;
+      fs.writeFileSync(path.join(stageDir, '_headers'), headersContent, 'utf8');
+    } catch {}
   };
 
   if (mode === 'file') {
@@ -409,7 +432,20 @@ async function netlifyCall(token, method, url, body, headers = {}) {
 
 function zipDirectory(dir) {
   const zip = new AdmZip();
-  zip.addLocalFolder(dir, '', (f) => !/(^|[\\/])(\.|node_modules)/.test(f));
+  const addFolder = (folder, zipBase = '') => {
+    const entries = fs.readdirSync(folder, { withFileTypes: true });
+    for (const ent of entries) {
+      if (ent.name === '.git' || ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
+      const full = path.join(folder, ent.name);
+      if (ent.isDirectory()) {
+        const subBase = zipBase ? `${zipBase}/${ent.name}` : ent.name;
+        addFolder(full, subBase);
+      } else {
+        zip.addLocalFile(full, zipBase);
+      }
+    }
+  };
+  addFolder(dir);
   return zip.toBuffer();
 }
 
@@ -499,6 +535,11 @@ async function publishViaNetlify(token, opts = {}, log = () => {}) {
         throw new Error('Could not create site on Netlify. Please try again.');
       }
     }
+
+    // Guarantee site is publicly accessible without login locks (disables Edge SSO lock)
+    try {
+      await netlifyCall(token, 'PATCH', '/sites/' + siteId, JSON.stringify({ sso_login: false, password: '' }), { 'Content-Type': 'application/json' });
+    } catch {}
 
     log(`Packing ${stagedFiles ? stagedFiles.length : 'web'} HTML & asset files (non-web/C++ files excluded)…`);
     const buf = zipDirectory(stageDir);
